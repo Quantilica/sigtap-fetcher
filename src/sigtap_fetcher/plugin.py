@@ -6,9 +6,11 @@ import datetime as dt
 from pathlib import Path
 from typing import Any
 
-from quantilica.cli.sdk import FetcherApp, make_resolve_groups
+from quantilica.cli.sdk import CheckPlanItem, FetcherApp, make_resolve_groups
+from quantilica.core.ftp import FtpClient
 
 from .catalog import GROUP_ALIASES, GROUPS, list_datasets
+from .constants import FTP_HOST
 from .storage import DataRepository
 
 resolve_groups = make_resolve_groups(
@@ -31,7 +33,39 @@ fetcher = FetcherApp(
     list_datasets=list_datasets,
     path_builder=path_builder,
     default_output=Path("/data/sigtap"),
+    client=FtpClient(FTP_HOST),
 )
+
+
+def _sigtap_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanItem:
+    """Veredito de frescor para uma competência do SIGTAP, sem baixar.
+
+    O probe genérico do SDK usa ``HEAD`` HTTP, que o ``FtpClient`` não
+    implementa. Como cada competência tem URL fixa e imutável no FTP, o
+    critério honesto é local: arquivo carimbado já presente → ``skip``,
+    senão ``download``.
+    """
+    dataset = str(entry.get("group") or "tabelas")
+    eid = str(entry.get("id", "unknown"))
+    local = path_builder(output_dir, entry, None)
+    exists = local.exists()
+    return CheckPlanItem(
+        dataset=dataset,
+        id=eid,
+        url=str(entry.get("url", "")),
+        partition=str(entry.get("competencia")) if entry.get("competencia") else None,
+        local_path=str(local),
+        remote_etag=None,
+        remote_last_modified=None,
+        remote_size=None,
+        local_exists=exists,
+        action="skip-up-to-date" if exists else "download",
+        reason="local-exists" if exists else "not-present",
+        entry=dict(entry),
+    )
+
+
+fetcher.check_entry = _sigtap_check_entry  # type: ignore[method-assign]
 
 
 def convert(

@@ -25,9 +25,12 @@ class SigtapClient:
 
     def list_remote_files(self) -> list[dict[str, Any]]:
         """List all TabelaUnificada archives on FTP server."""
-        entries = self.client.list_dir(self.ftp_dir)
+        entries = self.client.list_files(self.ftp_dir)
         results: list[dict[str, Any]] = []
-        for name, size, mtime in entries:
+        for item in entries:
+            if item.get("is_dir"):
+                continue
+            name = str(item.get("name", ""))
             match = COMPETENCIA_RE.match(name)
             if match:
                 comp = match.group("competencia")
@@ -37,9 +40,10 @@ class SigtapClient:
                         "filename": name,
                         "competencia": comp,
                         "version": ver,
-                        "size": size,
-                        "mtime": mtime,
-                        "path": f"{self.ftp_dir}/{name}",
+                        "size": item.get("size"),
+                        "mtime": item.get("mtime"),
+                        "path": item.get("full_path")
+                        or f"{self.ftp_dir}/{name}",
                     }
                 )
         return results
@@ -47,4 +51,10 @@ class SigtapClient:
     def download_file(self, remote_filename: str, destination: Path) -> Path:
         """Download single archive with manifest."""
         remote_path = f"{self.ftp_dir}/{remote_filename}"
-        return self.client.download_with_manifest(remote_path, destination)
+        return self.client.download_with_manifest(
+            remote_path,
+            destination,
+            source_id="sigtap",
+            dataset_id="tabelas",
+            producer="sigtap-fetcher",
+        )
