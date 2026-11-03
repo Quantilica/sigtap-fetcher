@@ -42,8 +42,7 @@ class SigtapClient:
                         "version": ver,
                         "size": item.get("size"),
                         "mtime": item.get("mtime"),
-                        "path": item.get("full_path")
-                        or f"{self.ftp_dir}/{name}",
+                        "path": item.get("full_path") or f"{self.ftp_dir}/{name}",
                     }
                 )
         return results
