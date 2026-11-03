@@ -171,13 +171,14 @@ class SigtapLakeConverter:
                             res.skipped += 1
                             continue
 
-                        # Find matching layout
+                        # Cada tabela tem o seu `<tabela>_layout.txt`. Sem ele a
+                        # tabela nao e convertida (nunca emprestar o layout de outra).
                         layout = layouts.get(table_name)
                         if not layout:
-                            # Try general layout fallback
-                            layout = next(iter(layouts.values()), None)
-
-                        if not layout:
+                            res.errors.append(
+                                f"{zpath.name}: {table_name} sem arquivo de layout "
+                                f"({table_name}_layout.txt); tabela nao convertida"
+                            )
                             continue
 
                         content = zf.read(dfile).decode("latin-1")

@@ -11,7 +11,7 @@ from quantilica.core.ftp import FtpClient
 from quantilica.core.sync import FreshnessPolicy
 
 from .catalog import GROUP_ALIASES, GROUPS, list_datasets
-from .constants import FTP_HOST
+from .constants import COMPETENCIA_RE, FTP_HOST
 from .storage import DataRepository
 
 resolve_groups = make_resolve_groups(
@@ -39,18 +39,51 @@ fetcher = FetcherApp(
 )
 
 
+def _local_files_for_competencia(
+    output_dir: Path, entry: dict[str, Any]
+) -> list[tuple[Path, int | None]]:
+    """Arquivos locais da competência do ``entry`` com a versão (sufixo ``v``).
+
+    Casa por competência (AAAAMM) ignorando o carimbo ``@AAAAMMDD``, que muda a
+    cada download e não identifica a publicação.
+    """
+    group = str(entry.get("group") or "tabelas")
+    comp = str(entry.get("competencia") or "")
+    folder = output_dir / group
+    found: list[tuple[Path, int | None]] = []
+    if not comp or not folder.is_dir():
+        return found
+    for path in sorted(folder.glob("*.zip")):
+        match = COMPETENCIA_RE.match(path.name)
+        if match and match.group("competencia") == comp:
+            version = match.group("version")
+            found.append((path, int(version) if version else None))
+    return found
+
+
 def _sigtap_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanItem:
     """Veredito de frescor para uma competência do SIGTAP, sem baixar.
 
     O probe genérico do SDK usa ``HEAD`` HTTP, que o ``FtpClient`` não
-    implementa. Como cada competência tem URL fixa e imutável no FTP, o
-    critério honesto é local: arquivo carimbado já presente → ``skip``,
-    senão ``download``.
+    implementa. O critério honesto é local e por competência: existe arquivo da
+    mesma competência **e** da mesma versão (sufixo ``v``) → ``skip``; sufixo
+    diferente é versão nova (o DATASUS regera competências passadas em lote) →
+    ``download``; nenhum arquivo → ``download``. O carimbo ``@AAAAMMDD`` do nome
+    local é ignorado.
     """
     dataset = str(entry.get("group") or "tabelas")
     eid = str(entry.get("id", "unknown"))
-    local = path_builder(output_dir, entry, None)
-    exists = local.exists()
+    raw_version = entry.get("version")
+    version = int(raw_version) if raw_version else None
+    local_files = _local_files_for_competencia(output_dir, entry)
+    current = [p for p, v in local_files if v == version]
+    exists = bool(current)
+    if exists:
+        local = current[-1]
+        reason = "local-exists"
+    else:
+        local = path_builder(output_dir, entry, None)
+        reason = "new-version" if local_files else "not-present"
     return CheckPlanItem(
         dataset=dataset,
         id=eid,
@@ -62,7 +95,7 @@ def _sigtap_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanIte
         remote_size=None,
         local_exists=exists,
         action="skip-up-to-date" if exists else "download",
-        reason="local-exists" if exists else "not-present",
+        reason=reason,
         entry=dict(entry),
     )
 

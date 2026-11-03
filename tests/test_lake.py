@@ -64,3 +64,27 @@ def test_convert_sigtap_zip_fixtures(tmp_path: Path) -> None:
     res2 = converter.convert(tmp_path / "raw", lake_dir)
     assert not res2.errors
     assert res2.skipped >= 15
+
+
+def test_table_without_layout_is_an_error_not_first_table_layout(
+    tmp_path: Path,
+) -> None:
+    """Regressão A5: sem `*_layout`, a tabela usava o layout da primeira tabela."""
+    import zipfile
+
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    with zipfile.ZipFile(raw / "TabelaUnificada_202610@20261101.zip", "w") as zf:
+        zf.writestr(
+            "tb_grupo_layout.txt", "CO_GRUPO,2,1,2,CHAR\nNO_GRUPO,10,3,12,CHAR\n"
+        )
+        zf.writestr("tb_grupo.txt", "01ACOES     \n")
+        # tb_subgrupo sem tb_subgrupo_layout.txt
+        zf.writestr("tb_subgrupo.txt", "0101ABCDEFGH\n")
+    lake = tmp_path / "lake"
+    res = converter.convert(tmp_path / "raw", lake)
+
+    assert res.converted == 1  # só tb_grupo
+    assert len(res.errors) == 1
+    assert "tb_subgrupo" in res.errors[0] and "layout" in res.errors[0]
+    assert not (lake / "sigtap" / "tb_subgrupo").exists()
