@@ -8,6 +8,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Não lançado]
 
 ### Corrigido
+- Aliases de grupo (`sync padrao` etc.): o `FetcherApp` recebia `alias -> str` e o
+  SDK fazia `list("teses")`, resolvendo para `['t', 'e', 's', ...]` ("Grupo
+  desconhecido: 't'"). O plugin agora passa `alias -> [grupo]`.
 - `check`: o veredito casa a entrada por competência (AAAAMM) e versão (sufixo
   `v`), ignorando o carimbo `@AAAAMMDD` do nome local. Antes o carimbo de hoje
   era usado na busca e todo arquivo baixado em outro dia virava

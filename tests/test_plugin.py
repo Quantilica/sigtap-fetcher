@@ -92,3 +92,13 @@ def test_check_does_not_mix_competencias(tmp_path) -> None:
 
     _touch(tmp_path, "TabelaUnificada_202502@20250401.zip")
     assert _sigtap_check_entry(_entry("202501"), tmp_path).action == "download"
+
+
+def test_aliases_resolve_to_group_not_characters() -> None:
+    """Regressão: alias string virava lista de caracteres no FetcherApp."""
+    from sigtap_fetcher.catalog import GROUP_ALIASES, GROUPS
+    from sigtap_fetcher.plugin import fetcher
+
+    for alias, canon in GROUP_ALIASES.items():
+        assert fetcher.resolve_groups([alias]) == [canon]
+        assert canon in GROUPS

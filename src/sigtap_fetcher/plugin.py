@@ -14,9 +14,12 @@ from .catalog import GROUP_ALIASES, GROUPS, list_datasets
 from .constants import COMPETENCIA_RE, FTP_HOST
 from .storage import DataRepository
 
-resolve_groups = make_resolve_groups(
-    GROUPS, {alias: [canon] for alias, canon in GROUP_ALIASES.items()}
-)
+# O SDK espera ``alias -> lista de grupos``; passar a string crua faria
+# ``list("teses")`` virar ['t', 'e', 's', ...] ("Grupo desconhecido: 't'").
+ALIASES: dict[str, list[str]] = {
+    alias: [canon] for alias, canon in GROUP_ALIASES.items()
+}
+resolve_groups = make_resolve_groups(GROUPS, ALIASES)
 
 
 def path_builder(
@@ -30,7 +33,7 @@ fetcher = FetcherApp(
     name="sigtap",
     help="Tabela Unificada de Procedimentos, Medicamentos e OPM do SUS (SIGTAP).",
     groups_dict=GROUPS,
-    aliases_dict=GROUP_ALIASES,
+    aliases_dict=ALIASES,
     list_datasets=list_datasets,
     path_builder=path_builder,
     default_output=Path("/data/sigtap"),
