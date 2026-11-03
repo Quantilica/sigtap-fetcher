@@ -38,7 +38,7 @@ fetcher = FetcherApp(
     path_builder=path_builder,
     default_output=Path("/data/sigtap"),
     client=FtpClient(FTP_HOST),
-    freshness_policy=FreshnessPolicy.REMOTE_ONLY,
+    freshness_policy=FreshnessPolicy.HEAD_OR_MANIFEST,
 )
 
 
