@@ -8,6 +8,7 @@ from typing import Any
 
 from quantilica.cli.sdk import CheckPlanItem, FetcherApp, make_resolve_groups
 from quantilica.core.ftp import FtpClient
+from quantilica.core.sync import FreshnessPolicy
 
 from .catalog import GROUP_ALIASES, GROUPS, list_datasets
 from .constants import FTP_HOST
@@ -34,6 +35,7 @@ fetcher = FetcherApp(
     path_builder=path_builder,
     default_output=Path("/data/sigtap"),
     client=FtpClient(FTP_HOST),
+    freshness_policy=FreshnessPolicy.REMOTE_ONLY,
 )
 
 

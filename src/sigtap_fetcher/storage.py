@@ -32,14 +32,16 @@ class DataRepository(BaseDataRepository):
         comp = entry.get("competencia")
         ver = entry.get("version")
 
+        timestamp = last_modified or dt.date.today()
+
         if comp is not None:
             partition = str(comp)
             if ver:
                 partition = f"{partition}_v{ver}"
             filename = build_stamped_filename(
-                base_id, partition, ext=ext, timestamp=last_modified
+                base_id, partition, ext=ext, timestamp=timestamp
             )
         else:
-            filename = stamp_filename(base_id, ext, last_modified)
+            filename = stamp_filename(base_id, ext, timestamp)
 
         return self.storage.path_for(f"{group}/{filename}")
