@@ -88,3 +88,113 @@ def test_table_without_layout_is_an_error_not_first_table_layout(
     assert len(res.errors) == 1
     assert "tb_subgrupo" in res.errors[0] and "layout" in res.errors[0]
     assert not (lake / "sigtap" / "tb_subgrupo").exists()
+
+
+def _zip(path: Path, tabelas: dict[str, tuple[str, str]], extra: dict | None = None):
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        for nome, (layout, dados) in tabelas.items():
+            zf.writestr(f"{nome}_layout.txt", layout)
+            zf.writestr(f"{nome}.txt", dados.encode("latin-1"))
+        for nome, conteudo in (extra or {}).items():
+            zf.writestr(nome, conteudo)
+
+
+_GRUPO = ("Coluna,Tamanho,Inicio,Fim,Tipo\nCO_GRUPO,2,1,2,VARCHAR2\n", "01\n02\n")
+
+
+def test_so_a_versao_vigente_de_cada_competencia(tmp_path: Path) -> None:
+    """select_current agrupava por chave com `_v`: duas versoes da mesma
+    competencia viravam duas partidas vigentes."""
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    velha = raw / "TabelaUnificada_202610_v2610011000@20261002.zip"
+    nova = raw / "TabelaUnificada_202610_v2610271043@20261028.zip"
+    _zip(
+        velha,
+        {
+            "tb_grupo": (
+                "Coluna,Tamanho,Inicio,Fim,Tipo\nCO_GRUPO,2,1,2,VARCHAR2\n",
+                "01\n",
+            )
+        },
+    )
+    _zip(nova, {"tb_grupo": _GRUPO})
+    lake = tmp_path / "lake"
+    res = converter.convert(tmp_path / "raw", lake)
+    assert not res.errors
+    assert res.converted == 1  # so a versao vigente
+    df = pl.read_parquet(lake / "sigtap" / "tb_grupo" / "**" / "*.parquet")
+    assert df["versao"].unique().to_list() == [2610271043]
+    assert df.height == 2
+
+
+def test_coluna_esparsa_nao_quebra_a_inferencia(tmp_path: Path) -> None:
+    """Coluna vazia nas primeiras 100 linhas virava tipo Null e quebrava no 1o
+    valor texto (rl_procedimento_habilitacao no SIGTAP real)."""
+    layout = (
+        "Coluna,Tamanho,Inicio,Fim,Tipo\nCO_A,2,1,2,VARCHAR2\nNU_B,4,3,6,VARCHAR2\n"
+    )
+    linhas = "".join(f"{i % 90 + 10:02d}    \n" for i in range(150)) + "990001\n"
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    _zip(
+        raw / "TabelaUnificada_202610_v2610271043@20261028.zip",
+        {"rl_x": (layout, linhas)},
+    )
+    lake = tmp_path / "lake"
+    res = converter.convert(tmp_path / "raw", lake)
+    assert not res.errors, res.errors
+    df = pl.read_parquet(lake / "sigtap" / "rl_x" / "**" / "*.parquet")
+    assert df.height == 151
+    assert df["nu_b"].null_count() == 150
+    assert "0001" in df["nu_b"].to_list()
+
+
+def test_arquivos_auxiliares_do_zip_nao_viram_tabela(tmp_path: Path) -> None:
+    """LEIA_ME.TXT e o layout.txt consolidado nao sao tabelas."""
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    _zip(
+        raw / "TabelaUnificada_202610_v2610271043@20261028.zip",
+        {"tb_grupo": _GRUPO},
+        {
+            "LEIA_ME.TXT": "leia-me",
+            "layout.txt": (
+                "tb_grupo\nColuna,Tamanho,Inicio,Fim,Tipo\nCO_GRUPO,2,1,2,VARCHAR2\n"
+            ),
+        },
+    )
+    lake = tmp_path / "lake"
+    res = converter.convert(tmp_path / "raw", lake)
+    assert not res.errors, res.errors
+    assert sorted(p.name for p in (lake / "sigtap").iterdir()) == ["tb_grupo"]
+
+
+def test_idade_e_contagem_nao_dividem_por_100(tmp_path: Path) -> None:
+    layout = (
+        "Coluna,Tamanho,Inicio,Fim,Tipo\n"
+        "CO_P,2,1,2,VARCHAR2\nVL_IDADE_MINIMA,4,3,6,NUMBER\n"
+        "VL_SH,6,7,12,NUMBER\n"
+    )
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    _zip(
+        raw / "TabelaUnificada_202610_v2610271043@20261028.zip",
+        {"tb_procedimento": (layout, "010012001000\n")},
+    )
+    lake = tmp_path / "lake"
+    res = converter.convert(tmp_path / "raw", lake)
+    assert not res.errors, res.errors
+    df = pl.read_parquet(lake / "sigtap" / "tb_procedimento" / "**" / "*.parquet")
+    assert df["vl_idade_minima"][0] == 12  # meses, nao centavos
+    assert df["vl_sh"][0] == 10.0  # centavos
+
+
+def test_datasets_cobre_as_41_tabelas_reais() -> None:
+    from sigtap_fetcher.constants import ALL_TABLES
+
+    assert len(ALL_TABLES) == 41 == len(set(ALL_TABLES))
+    assert set(converter.datasets()) == set(ALL_TABLES)
+    assert "tb_sub_grupo" in ALL_TABLES and "rl_procedimento_cid" in ALL_TABLES

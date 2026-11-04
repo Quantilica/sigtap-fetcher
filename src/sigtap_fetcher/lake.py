@@ -23,7 +23,7 @@ except ImportError as exc:
         "--index https://index.quantilica.com/simple/"
     ) from exc
 
-from sigtap_fetcher.constants import COMPETENCIA_RE, CORE_TABLES
+from sigtap_fetcher.constants import ALL_TABLES, COMPETENCIA_RE, MONEY_COLUMNS
 
 SOURCE_ID = "sigtap"
 
@@ -54,44 +54,90 @@ def _extract_layouts_from_zip(zf: zipfile.ZipFile) -> dict[str, list[FixedField]
     return layouts
 
 
+_DTYPES: dict[str, Any] = {"str": pl.Utf8, "int": pl.Int64, "decimal": pl.Float64}
+
+
+def _effective_kind(f: FixedField) -> tuple[str, int]:
+    """Tipo e escala efetivos: so ``vl_sh/sa/sp`` sao dinheiro (centavos).
+
+    A heuristica generica trata todo ``vl_*`` como decimal; no SIGTAP ``vl_idade_*``
+    (meses), ``vl_campos_irradiados`` (contagem) e ``vl_percentual_*`` sao inteiros.
+    """
+    if f.kind == "decimal" and f.name not in MONEY_COLUMNS:
+        return "int", 0
+    return f.kind, f.scale
+
+
+def _is_table_member(name: str) -> bool:
+    """``tb_*.txt`` / ``rl_*.txt`` de dados (nao layout, LEIA_ME, layout.txt)."""
+    stem = Path(name).stem.lower()
+    return (
+        name.lower().endswith(".txt")
+        and stem.startswith(("tb_", "rl_"))
+        and not stem.endswith("_layout")
+    )
+
+
+def _current_by_competencia(zips: list[Path]) -> list[Path]:
+    """Uma versao por competencia: a de maior sufixo ``_v`` (depois, a mais nova).
+
+    ``select_current`` agrupa pela chave inteira (``..._202610_v2610271043``) e,
+    portanto, manteria duas versoes regeradas da mesma competencia.
+    """
+    best: dict[str, tuple[int, Path]] = {}
+    sem_competencia: list[Path] = []
+    for z in select_current(zips):
+        m = COMPETENCIA_RE.search(z.name)
+        if not m:
+            sem_competencia.append(z)
+            continue
+        ver = int(m.group("version") or 0)
+        cur = best.get(m.group("competencia"))
+        # empate de versao: o nome com carimbo @ maior (mais novo) vence
+        if cur is None or (ver, z.name) > (cur[0], cur[1].name):
+            best[m.group("competencia")] = (ver, z)
+    return sorted([v[1] for v in best.values()] + sem_competencia)
+
+
 def parse_fixed_width_lines(
     lines: list[str], layout: list[FixedField], comp: str, ver: int
 ) -> pl.DataFrame:
     """Parse raw fixed-width lines into a Polars DataFrame using layout definition."""
+    kinds = [(f, *_effective_kind(f)) for f in layout]
     rows: list[dict[str, Any]] = []
     for line in lines:
         if not line.strip():
             continue
         row: dict[str, Any] = {"competencia": comp, "versao": ver}
-        for f in layout:
+        for f, kind, scale in kinds:
             # start is 1-based index
             s_idx = f.start - 1
             e_idx = s_idx + f.width
             raw_val = line[s_idx:e_idx].strip() if s_idx < len(line) else ""
             if not raw_val:
                 row[f.name] = None
-            elif f.kind == "int":
+            elif kind == "int":
                 try:
                     row[f.name] = int(raw_val)
                 except ValueError:
                     row[f.name] = None
-            elif f.kind == "decimal":
+            elif kind == "decimal":
                 try:
                     num = float(raw_val)
-                    if f.scale > 0:
-                        row[f.name] = num / (10**f.scale)
-                    else:
-                        row[f.name] = num
+                    row[f.name] = num / (10**scale) if scale > 0 else num
                 except ValueError:
                     row[f.name] = None
             else:
                 row[f.name] = raw_val
         rows.append(row)
 
+    # Schema explicito: a inferencia olha so as primeiras linhas e uma coluna vazia
+    # nelas virava Null, quebrando no primeiro valor de texto.
+    schema = {"competencia": pl.Utf8, "versao": pl.Int64}
+    schema.update({f.name: _DTYPES[kind] for f, kind, _ in kinds})
     if not rows:
-        return pl.DataFrame()
-
-    return pl.DataFrame(rows)
+        return pl.DataFrame(schema=schema)
+    return pl.DataFrame(rows, schema=schema, infer_schema_length=None)
 
 
 class SigtapLakeConverter:
@@ -100,7 +146,7 @@ class SigtapLakeConverter:
     source_id = SOURCE_ID
 
     def datasets(self) -> list[str]:
-        return list(CORE_TABLES)
+        return list(ALL_TABLES)
 
     def convert(
         self,
@@ -117,7 +163,7 @@ class SigtapLakeConverter:
         if not tabelas_dir.is_dir():
             tabelas_dir = input_dir
 
-        zip_files = select_current(list(tabelas_dir.glob("*.zip")))
+        zip_files = _current_by_competencia(list(tabelas_dir.glob("*.zip")))
         writers: dict[str, LakeWriter] = {}
 
         def get_writer(table_name: str) -> LakeWriter:
@@ -153,11 +199,7 @@ class SigtapLakeConverter:
                 with zipfile.ZipFile(zpath, "r") as zf:
                     layouts = _extract_layouts_from_zip(zf)
                     names = zf.namelist()
-                    data_files = [
-                        n
-                        for n in names
-                        if n.lower().endswith(".txt") and "_layout" not in n.lower()
-                    ]
+                    data_files = [n for n in names if _is_table_member(n)]
 
                     for dfile in data_files:
                         table_name = Path(dfile).stem.lower()

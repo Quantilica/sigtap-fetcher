@@ -8,6 +8,11 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Não lançado]
 
 ### Corrigido
+- `lake`: o `convert` mantinha duas versoes da mesma competencia (`select_current` agrupa pela chave inteira, que inclui `_v<timestamp>`); agora so a de maior `_v` entra por competencia.
+- `lake`: `datasets()` devolvia 16 `CORE_TABLES` (uma, `tb_subgrupo`, nem existe: o nome real e `tb_sub_grupo`). Agora sao as 41 tabelas `tb_*`/`rl_*` do ZIP de 2026-10 (`ALL_TABLES`, sondadas no FTP; o plano falava em 42). Todas tem `<tabela>_layout.txt` e convertem sem parser novo; `rl_procedimento_tuss` vem vazia na fonte.
+- `lake`: `LEIA_ME.TXT` e o `layout.txt` consolidado eram tratados como tabelas (erro / dataset-lixo); so `tb_*`/`rl_*` sao convertidas.
+- `lake`: schema explicito no DataFrame (coluna vazia nas primeiras linhas virava `Null` e quebrava, p.ex. `rl_procedimento_habilitacao`).
+- `lake`: so `vl_sh/vl_sa/vl_sp` sao dinheiro (centavos /100); `vl_idade_*`, `vl_campos_irradiados` e `vl_percentual_*` eram divididos por 100 por engano e agora sao inteiros. Reconverter `tb_procedimento`, `tb_cid` e `rl_procedimento_incremento` com `--force`.
 - Política de frescor volta a F1 (`HEAD_OR_MANIFEST`): `REMOTE_ONLY` (F3, para fontes sem validadores) causava re-download diário de fontes com Last-Modified/ETag, porque descartava o Last-Modified e o nome do arquivo caía em `@hoje`.
 - Aliases de grupo (`sync padrao` etc.): o `FetcherApp` recebia `alias -> str` e o
   SDK fazia `list("teses")`, resolvendo para `['t', 'e', 's', ...]` ("Grupo
