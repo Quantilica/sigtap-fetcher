@@ -7,7 +7,10 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.2.1] - 2026-11-04
+
 ### Corrigido
+- `lake`: `vl_percentual_sh/sa/sp` (`rl_procedimento_incremento`) voltam a ter duas casas decimais (`2000` = 20,0 %); a 0.2.0 os lia como inteiros. Reconverter `rl_procedimento_incremento` com `--force`. `vl_idade_*` e `vl_campos_irradiados` continuam inteiros.
 - Sem o extra `analysis`, o comando `convert` termina com código 1 e a instrução de instalação (`quantilica install sigtap --extra analysis`), sem traceback.
 
 ## [0.2.0] - 2026-11-04

@@ -198,3 +198,23 @@ def test_datasets_cobre_as_41_tabelas_reais() -> None:
     assert len(ALL_TABLES) == 41 == len(set(ALL_TABLES))
     assert set(converter.datasets()) == set(ALL_TABLES)
     assert "tb_sub_grupo" in ALL_TABLES and "rl_procedimento_cid" in ALL_TABLES
+
+
+def test_percentual_tem_duas_casas(tmp_path: Path) -> None:
+    layout = (
+        "Coluna,Tamanho,Inicio,Fim,Tipo\n"
+        "CO_P,2,1,2,VARCHAR2\nVL_PERCENTUAL_SH,7,3,9,NUMBER\n"
+    )
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    _zip(
+        raw / "TabelaUnificada_202610_v2610271043@20261028.zip",
+        {"rl_procedimento_incremento": (layout, "010002000\n")},
+    )
+    lake = tmp_path / "lake"
+    res = converter.convert(tmp_path / "raw", lake)
+    assert not res.errors, res.errors
+    df = pl.read_parquet(
+        lake / "sigtap" / "rl_procedimento_incremento" / "**" / "*.parquet"
+    )
+    assert df["vl_percentual_sh"][0] == 20.0

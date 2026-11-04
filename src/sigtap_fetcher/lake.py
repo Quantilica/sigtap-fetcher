@@ -23,7 +23,12 @@ except ImportError as exc:
         "--index https://index.quantilica.com/simple/"
     ) from exc
 
-from sigtap_fetcher.constants import ALL_TABLES, COMPETENCIA_RE, MONEY_COLUMNS
+from sigtap_fetcher.constants import (
+    ALL_TABLES,
+    COMPETENCIA_RE,
+    MONEY_COLUMNS,
+    PERCENT_COLUMNS,
+)
 
 SOURCE_ID = "sigtap"
 
@@ -58,11 +63,14 @@ _DTYPES: dict[str, Any] = {"str": pl.Utf8, "int": pl.Int64, "decimal": pl.Float6
 
 
 def _effective_kind(f: FixedField) -> tuple[str, int]:
-    """Tipo e escala efetivos: so ``vl_sh/sa/sp`` sao dinheiro (centavos).
+    """Tipo e escala efetivos: ``vl_sh/sa/sp`` sao dinheiro (centavos).
 
     A heuristica generica trata todo ``vl_*`` como decimal; no SIGTAP ``vl_idade_*``
-    (meses), ``vl_campos_irradiados`` (contagem) e ``vl_percentual_*`` sao inteiros.
+    (meses) e ``vl_campos_irradiados`` (contagem) sao inteiros e ``vl_percentual_*``
+    e percentual com duas casas (pontos percentuais: 20.0 = 20 %).
     """
+    if f.name in PERCENT_COLUMNS:
+        return "decimal", 2
     if f.kind == "decimal" and f.name not in MONEY_COLUMNS:
         return "int", 0
     return f.kind, f.scale

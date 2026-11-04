@@ -64,3 +64,10 @@ CORE_TABLES = ALL_TABLES
 # Unicas colunas monetarias (centavos, sem separador decimal). Os demais `VL_*`
 # do SIGTAP sao idade em meses, contagem ou percentual: inteiros, nao dinheiro.
 MONEY_COLUMNS = frozenset({"vl_sh", "vl_sa", "vl_sp"})
+
+# Percentuais de incremento (`rl_procedimento_incremento`): duas casas implicitas
+# (`2000` = 20,00 %). O layout so informa a largura; a escala vem da distribuicao
+# dos valores publicados (2000, 3500, 5000, 8000, 10000).
+PERCENT_COLUMNS = frozenset(
+    {"vl_percentual_sh", "vl_percentual_sa", "vl_percentual_sp"}
+)
