@@ -5,7 +5,7 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.2.0] - 2026-11-04
 
 ### Corrigido
 - `lake`: o `convert` mantinha duas versoes da mesma competencia (`select_current` agrupa pela chave inteira, que inclui `_v<timestamp>`); agora so a de maior `_v` entra por competencia.
