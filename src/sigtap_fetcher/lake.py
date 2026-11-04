@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import zipfile
 from pathlib import Path
@@ -30,6 +31,8 @@ from sigtap_fetcher.constants import (
     PERCENT_COLUMNS,
 )
 
+logger = logging.getLogger(__name__)
+
 SOURCE_ID = "sigtap"
 
 
@@ -57,6 +60,44 @@ def _extract_layouts_from_zip(zf: zipfile.ZipFile) -> dict[str, list[FixedField]
             continue
 
     return layouts
+
+
+def _month_index(comp: str) -> int:
+    return int(comp[:4]) * 12 + int(comp[4:6])
+
+
+def _layout_width(layout: list[FixedField]) -> int:
+    return max(f.start + f.width - 1 for f in layout)
+
+
+def _borrow_layout(
+    table: str,
+    comp: str,
+    zip_comps: list[tuple[str, Path]],
+    cache: dict[tuple[str, str], list[FixedField] | None],
+) -> tuple[str, list[FixedField]] | None:
+    """Layout de ``table`` da competencia mais proxima de ``comp`` que o traga.
+
+    ZIPs antigos (201412 a 2015xx) nao trazem ``tb_regra_condicionada_layout.txt``.
+    O layout da **mesma tabela** em outra competencia do lote e o fallback
+    (empate de distancia: a competencia anterior). Nunca o layout de outra tabela.
+    O chamador confere a largura contra os dados antes de usar.
+    """
+    candidates = sorted(
+        (c for c in zip_comps if c[0] != comp),
+        key=lambda c: (abs(_month_index(c[0]) - _month_index(comp)), c[0]),
+    )
+    for other_comp, zpath in candidates:
+        key = (zpath.name, table)
+        if key not in cache:
+            try:
+                with zipfile.ZipFile(zpath) as zf:
+                    cache[key] = _extract_layouts_from_zip(zf).get(table)
+            except (OSError, zipfile.BadZipFile):
+                cache[key] = None
+        if cache[key]:
+            return other_comp, cache[key]  # type: ignore[return-value]
+    return None
 
 
 _DTYPES: dict[str, Any] = {"str": pl.Utf8, "int": pl.Int64, "decimal": pl.Float64}
@@ -189,6 +230,13 @@ class SigtapLakeConverter:
                 )
             return writers[table_name]
 
+        zip_comps: list[tuple[str, Path]] = []
+        for z in zip_files:
+            m_z = COMPETENCIA_RE.search(z.name) or re.search(r"\b(20\d{4})\b", z.stem)
+            if m_z:
+                zip_comps.append((m_z.group(m_z.lastindex or 0), z))
+        borrowed_cache: dict[tuple[str, str], list[FixedField] | None] = {}
+
         for zpath in zip_files:
             match = COMPETENCIA_RE.search(zpath.name)
             if not match:
@@ -223,16 +271,41 @@ class SigtapLakeConverter:
 
                         # Cada tabela tem o seu `<tabela>_layout.txt`. Sem ele a
                         # tabela nao e convertida (nunca emprestar o layout de outra).
-                        layout = layouts.get(table_name)
-                        if not layout:
-                            res.errors.append(
-                                f"{zpath.name}: {table_name} sem arquivo de layout "
-                                f"({table_name}_layout.txt); tabela nao convertida"
-                            )
-                            continue
-
                         content = zf.read(dfile).decode("latin-1")
                         lines = content.splitlines()
+                        layout = layouts.get(table_name)
+                        if not layout:
+                            # Fallback explicito: layout da MESMA tabela na
+                            # competencia mais proxima (nunca o de outra tabela),
+                            # aceito so se a largura bate com a dos dados.
+                            borrowed = _borrow_layout(
+                                table_name, comp, zip_comps, borrowed_cache
+                            )
+                            if borrowed is None:
+                                res.errors.append(
+                                    f"{zpath.name}: {table_name} sem arquivo de "
+                                    f"layout ({table_name}_layout.txt) nem em outra "
+                                    "competencia; tabela nao convertida"
+                                )
+                                continue
+                            src_comp, layout = borrowed
+                            width = max(
+                                (len(x.rstrip("\r\n")) for x in lines), default=0
+                            )
+                            if width != _layout_width(layout):
+                                res.errors.append(
+                                    f"{zpath.name}: {table_name} sem layout; o de "
+                                    f"{src_comp} e incompativel (largura "
+                                    f"{_layout_width(layout)} contra {width} nos "
+                                    "dados); tabela nao convertida"
+                                )
+                                continue
+                            logger.warning(
+                                "sigtap: %s %s sem layout no ZIP; usando o de %s",
+                                comp,
+                                table_name,
+                                src_comp,
+                            )
                         df = parse_fixed_width_lines(lines, layout, comp, ver)
                         if df.height > 0:
                             writer.write_polars(

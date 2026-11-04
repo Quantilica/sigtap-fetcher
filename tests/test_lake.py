@@ -218,3 +218,53 @@ def test_percentual_tem_duas_casas(tmp_path: Path) -> None:
         lake / "sigtap" / "rl_procedimento_incremento" / "**" / "*.parquet"
     )
     assert df["vl_percentual_sh"][0] == 20.0
+
+
+_L2 = "Coluna,Tamanho,Inicio,Fim,Tipo\nCO_A,2,1,2,VARCHAR2\nCO_B,2,3,4,VARCHAR2\n"
+_L3 = (
+    "Coluna,Tamanho,Inicio,Fim,Tipo\nCO_A,2,1,2,VARCHAR2\nCO_B,2,3,4,VARCHAR2\n"
+    "CO_C,2,5,6,VARCHAR2\n"
+)
+
+
+def _zip_sem_layout(path: Path, tabela: str, dados: str, com: dict | None = None):
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(f"{tabela}.txt", dados.encode("latin-1"))
+        for nome, (layout, d) in (com or {}).items():
+            zf.writestr(f"{nome}_layout.txt", layout)
+            zf.writestr(f"{nome}.txt", d.encode("latin-1"))
+
+
+def test_layout_ausente_usa_o_da_competencia_mais_proxima(tmp_path: Path) -> None:
+    """ZIPs antigos (201412...) sem tb_regra_condicionada_layout.txt: usa o layout
+    da competencia mais proxima que o traga, com aviso, e confere a largura."""
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    tabela = "tb_regra_condicionada"
+    _zip_sem_layout(raw / "TabelaUnificada_201412@20261101.zip", tabela, "aabb\nccdd\n")
+    # a mais proxima (3 meses depois) tem layout de 4 colunas de largura
+    _zip(raw / "TabelaUnificada_201503@20261101.zip", {tabela: (_L2, "eeff\n")})
+    # a distante traz um layout diferente (6): nao pode ser a escolhida
+    _zip(raw / "TabelaUnificada_202610@20261101.zip", {tabela: (_L3, "gghhii\n")})
+    lake = tmp_path / "lake"
+    res = converter.convert(tmp_path / "raw", lake)
+    assert res.errors == [], res.errors
+    old = pl.read_parquet(lake / "sigtap" / tabela / "competencia=201412" / "*.parquet")
+    assert old.height == 2
+    assert old["co_a"].to_list() == ["aa", "cc"]
+    assert old["co_b"].to_list() == ["bb", "dd"]
+    assert "co_c" not in old.columns  # nao e o layout de 202610
+
+
+def test_layout_emprestado_incompativel_e_erro(tmp_path: Path) -> None:
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    tabela = "tb_regra_condicionada"
+    _zip_sem_layout(raw / "TabelaUnificada_201412@20261101.zip", tabela, "aabbcc\n")
+    _zip(raw / "TabelaUnificada_201503@20261101.zip", {tabela: (_L2, "eeff\n")})
+    res = converter.convert(tmp_path / "raw", tmp_path / "lake")
+    assert len(res.errors) == 1
+    assert "201412" in res.errors[0] and "incompat" in res.errors[0]
+    assert not (tmp_path / "lake" / "sigtap" / tabela / "competencia=201412").exists()
