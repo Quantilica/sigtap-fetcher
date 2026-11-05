@@ -5,7 +5,7 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.2.2] - 2026-11-04
 
 ### Corrigido
 - `lake`: ZIPs antigos (201412 a 2015xx) sem `tb_regra_condicionada_layout.txt` voltam a ser convertidos: o layout é o da mesma tabela na competência mais próxima do lote (empate: a anterior), com aviso no log e só se a largura bater com a dos dados; senão a tabela continua contada como erro. Nunca se usa o layout de outra tabela.
