@@ -14,6 +14,7 @@ try:
     from quantilica.analytics.lake import ConvertResult, LakeWriter
     from quantilica.core.lake import (
         DatasetDescriptor,
+        composite_file_key,
         partition_types_for,
         select_current,
     )
@@ -263,8 +264,12 @@ class SigtapLakeConverter:
                             continue
 
                         writer = get_writer(table_name)
+                        # Sem membro (a tabela e o dataset): igual a file_key(zpath).
+                        file_key_name = composite_file_key(zpath)
                         if not force and writer.is_current(
-                            zpath, partitions={"competencia": comp}
+                            zpath,
+                            partitions={"competencia": comp},
+                            file_key_name=file_key_name,
                         ):
                             res.skipped += 1
                             continue
@@ -312,6 +317,7 @@ class SigtapLakeConverter:
                                 df,
                                 zpath,
                                 partitions={"competencia": comp},
+                                file_key_name=file_key_name,
                             )
                             res.converted += 1
             except Exception as exc:
