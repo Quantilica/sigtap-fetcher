@@ -7,7 +7,11 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Corrigido
+- O arquivo baixado passa a ter nome estável: o carimbo `@AAAAMMDD` é a data de publicação no servidor (sufixo `_v` do nome ou data da listagem), não mais o dia do download. Antes, cada execução gerava um nome novo e baixava de novo todas as competências já obtidas. Na primeira execução após esta mudança, as competências são baixadas uma vez com o novo nome.
+
 ### Alterado
+- A listagem do catálogo passa a informar o tamanho (`remote_size`) e a data de publicação (`remote_date`) de cada competência, e o `check` preenche o tamanho remoto no plano.
 - A chave do arquivo bruto no lake passa a ser montada com `composite_file_key` do `quantilica-core` (nome do arquivo e, quando houver, o membro do ZIP), sem mudar as partições.
 
 ## [0.2.2] - 2026-11-04

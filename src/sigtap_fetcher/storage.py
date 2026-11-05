@@ -19,6 +19,16 @@ class DataRepository(BaseDataRepository):
     def __init__(self, root: Path | str) -> None:
         super().__init__(root)
 
+    @staticmethod
+    def _remote_date(entry: dict[str, Any]) -> dt.date | None:
+        raw = entry.get("remote_date")
+        if not raw:
+            return None
+        try:
+            return dt.date.fromisoformat(str(raw)[:10])
+        except ValueError:
+            return None
+
     def path_for_entry(
         self,
         entry: dict[str, Any],
@@ -32,7 +42,9 @@ class DataRepository(BaseDataRepository):
         comp = entry.get("competencia")
         ver = entry.get("version")
 
-        timestamp = last_modified or dt.date.today()
+        # Carimbo estável: a data da publicação remota viaja na entry; sem ela,
+        # vale o Last-Modified e, por último, o dia de hoje.
+        timestamp = self._remote_date(entry) or last_modified or dt.date.today()
 
         if comp is not None:
             partition = str(comp)

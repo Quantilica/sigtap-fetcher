@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 
 from sigtap_fetcher import catalog
@@ -13,7 +15,7 @@ FAKE_REMOTE = [
         "competencia": "202501",
         "version": 0,
         "size": 1,
-        "mtime": None,
+        "mtime": dt.date(2009, 1, 8),
         "path": "/pub/sistemas/tup/downloads/TabelaUnificada_202501.zip",
     },
     {
@@ -29,7 +31,7 @@ FAKE_REMOTE = [
         "competencia": "202502",
         "version": 2504011200,
         "size": 3,
-        "mtime": None,
+        "mtime": dt.date(2025, 4, 2),
         "path": "/pub/sistemas/tup/downloads/TabelaUnificada_202502_v2504011200.zip",
     },
 ]
@@ -65,3 +67,19 @@ def test_list_datasets_by_group() -> None:
 
     with pytest.raises(ValueError, match="Grupo desconhecido"):
         list_datasets("grupo_inexistente_xyz")
+
+
+def test_entries_carry_remote_size_and_date() -> None:
+    """Sufixo _v<yymmdd...> vence o mtime; sem sufixo, vale a data do mtime."""
+    old, latest = list_datasets()
+    assert (old["remote_size"], old["remote_date"]) == (1, "2009-01-08")
+    assert (latest["remote_size"], latest["remote_date"]) == (3, "2025-04-01")
+
+
+def test_remote_date_invalid_suffix_falls_back_to_mtime() -> None:
+    from sigtap_fetcher.catalog import _remote_date
+
+    assert _remote_date({"version": 2613991200, "mtime": dt.date(2026, 1, 2)}) == (
+        "2026-01-02"
+    )
+    assert _remote_date({"version": 1, "mtime": None}) is None

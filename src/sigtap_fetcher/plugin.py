@@ -72,7 +72,8 @@ def _sigtap_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanIte
     mesma competência **e** da mesma versão (sufixo ``v``) → ``skip``; sufixo
     diferente é versão nova (o DATASUS regera competências passadas em lote) →
     ``download``; nenhum arquivo → ``download``. O carimbo ``@AAAAMMDD`` do nome
-    local é ignorado.
+    local é ignorado. Havendo ``remote_date`` na entry, o ``local_path`` é sempre o
+    caminho estável (carimbo = data de publicação remota), igual ao do download.
     """
     dataset = str(entry.get("group") or "tabelas")
     eid = str(entry.get("id", "unknown"))
@@ -81,8 +82,9 @@ def _sigtap_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanIte
     local_files = _local_files_for_competencia(output_dir, entry)
     current = [p for p, v in local_files if v == version]
     exists = bool(current)
+    stable = path_builder(output_dir, entry, None) if entry.get("remote_date") else None
     if exists:
-        local = current[-1]
+        local = stable or current[-1]
         reason = "local-exists"
     else:
         local = path_builder(output_dir, entry, None)
@@ -95,7 +97,7 @@ def _sigtap_check_entry(entry: dict[str, Any], output_dir: Path) -> CheckPlanIte
         local_path=str(local),
         remote_etag=None,
         remote_last_modified=None,
-        remote_size=None,
+        remote_size=entry.get("remote_size"),
         local_exists=exists,
         action="skip-up-to-date" if exists else "download",
         reason=reason,

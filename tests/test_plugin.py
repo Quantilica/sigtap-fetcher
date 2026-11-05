@@ -102,3 +102,34 @@ def test_aliases_resolve_to_group_not_characters() -> None:
     for alias, canon in GROUP_ALIASES.items():
         assert fetcher.resolve_groups([alias]) == [canon]
         assert canon in GROUPS
+
+
+def test_check_fills_remote_size_and_stable_path(tmp_path) -> None:
+    """remote_size vem da entry e o local_path não depende do dia; o download_entry
+    do SDK, com a entry após ida e volta por JSON, gera o mesmo caminho."""
+    import json
+
+    from sigtap_fetcher.plugin import _sigtap_check_entry, fetcher, path_builder
+
+    entry = _entry("202610", 2610271043)
+    entry.update(remote_size=23061985, remote_date="2026-10-27")
+    item = _sigtap_check_entry(entry, tmp_path)
+    assert item.remote_size == 23061985
+    assert item.remote_etag is None and item.remote_last_modified is None
+    expected = tmp_path / "tabelas" / "TabelaUnificada_202610_v2610271043@20261027.zip"
+    assert item.local_path == str(expected)
+
+    restored = json.loads(json.dumps(item.entry))
+    assert path_builder(tmp_path, restored, None) == expected
+    assert fetcher.download_entry(restored, tmp_path, dry_run=True) == expected
+
+
+def test_check_existing_file_reports_stable_path(tmp_path) -> None:
+    from sigtap_fetcher.plugin import _sigtap_check_entry
+
+    _touch(tmp_path, "TabelaUnificada_202610_v2610271043@20200101.zip")
+    entry = _entry("202610", 2610271043)
+    entry.update(remote_size=1, remote_date="2026-10-27")
+    item = _sigtap_check_entry(entry, tmp_path)
+    assert item.local_exists is True
+    assert item.local_path.endswith("@20261027.zip")

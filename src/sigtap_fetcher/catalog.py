@@ -12,6 +12,7 @@ permanecem no FTP e não são baixadas.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 from .constants import FTP_DIR
@@ -21,6 +22,35 @@ __all__ = [
     "GROUP_ALIASES",
     "list_datasets",
 ]
+
+
+def _remote_date(remote: dict[str, Any]) -> str | None:
+    """Data estável da publicação (``AAAA-MM-DD``) do arquivo remoto.
+
+    Prefere o sufixo ``_v<yymmddHHMM>`` do nome: o ``LIST`` de arquivos
+    recentes vem sem ano e a inferência poderia virar na passagem do ano. Sem
+    sufixo válido, usa a data do ``mtime`` da listagem.
+    """
+    version = str(int(remote.get("version") or 0))
+    if len(version) == 10:
+        try:
+            return dt.date(
+                2000 + int(version[:2]), int(version[2:4]), int(version[4:6])
+            ).isoformat()
+        except ValueError:
+            pass
+    mtime = remote.get("mtime")
+    if isinstance(mtime, dt.datetime):
+        return mtime.date().isoformat()
+    if isinstance(mtime, dt.date):
+        return mtime.isoformat()
+    if isinstance(mtime, str) and len(mtime) >= 10:
+        try:
+            return dt.date.fromisoformat(mtime[:10]).isoformat()
+        except ValueError:
+            return None
+    return None
+
 
 # Preenchido sob demanda por `_remote_entries()` (uma listagem FTP por processo).
 _REMOTE_CACHE: list[dict[str, Any]] | None = None
@@ -60,6 +90,8 @@ def _remote_entries() -> list[dict[str, Any]]:
                 "partition": comp,
                 "version": version or None,
                 "remote_filename": remote["filename"],
+                "remote_size": remote.get("size"),
+                "remote_date": _remote_date(remote),
             }
         )
 
