@@ -7,6 +7,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+## [0.3.0] - 2026-11-05
+
 ### Corrigido
 - O arquivo baixado passa a ter nome estável: o carimbo `@AAAAMMDD` é a data de publicação no servidor (sufixo `_v` do nome ou data da listagem), não mais o dia do download. Antes, cada execução gerava um nome novo e baixava de novo todas as competências já obtidas. Na primeira execução após esta mudança, as competências são baixadas uma vez com o novo nome.
 
