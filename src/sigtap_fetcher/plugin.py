@@ -8,6 +8,7 @@ from typing import Any
 
 from quantilica.cli.sdk import CheckPlanItem, FetcherApp, make_resolve_groups
 from quantilica.core.ftp import FtpClient
+from quantilica.core.registry import FetcherInfo
 from quantilica.core.sync import FreshnessPolicy
 
 from .catalog import GROUP_ALIASES, GROUPS, list_datasets
@@ -32,6 +33,18 @@ def path_builder(
 fetcher = FetcherApp(
     name="sigtap",
     help="Tabela Unificada de Procedimentos, Medicamentos e OPM do SUS (SIGTAP).",
+    info=FetcherInfo(
+        id="sigtap",
+        nome="SIGTAP - Tabela de Procedimentos, Medicamentos e OPM do SUS",
+        aliases=("datasus-sigtap",),
+        orgao=(
+            "Departamento de Informática do Sistema Único de Saúde (DATASUS), "
+            "Ministério da Saúde"
+        ),
+        homepage="http://sigtap.datasus.gov.br/",
+        cadencia="monthly",
+        dominio="saude",
+    ),
     groups_dict=GROUPS,
     aliases_dict=ALIASES,
     list_datasets=list_datasets,
