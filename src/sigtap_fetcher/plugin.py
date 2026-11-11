@@ -41,6 +41,10 @@ fetcher = FetcherApp(
             "Departamento de Informática do Sistema Único de Saúde (DATASUS), "
             "Ministério da Saúde"
         ),
+        licenca=(
+            "Sem licença declarada; dados públicos pela Lei 12.527/2011 (LAI) "
+            "e Decreto 8.777/2016"
+        ),
         homepage="http://sigtap.datasus.gov.br/",
         cadencia="monthly",
         dominio="saude",
