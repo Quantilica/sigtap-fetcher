@@ -1,0 +1,873 @@
+{
+ "contagem_de_arquivos": {
+  "tb_forma_organizacao": {
+   "200801": 1,
+   "201605": 1,
+   "202610": 1
+  },
+  "tb_grupo": {
+   "200801": 1,
+   "201605": 1,
+   "202610": 1,
+   "202611": 1,
+   "202612": 1
+  },
+  "tb_procedimento": {
+   "200801": 1,
+   "201605": 1,
+   "202610": 1,
+   "202611": 1
+  },
+  "tb_rubrica": {
+   "200801": 1,
+   "201605": 1,
+   "202610": 1
+  },
+  "tb_subgrupo": {
+   "200801": 1,
+   "201605": 1,
+   "202610": 1
+  }
+ },
+ "lake": {
+  "tb_forma_organizacao": {
+   "colunas": [
+    [
+     "co_forma_organizacao",
+     "String"
+    ],
+    [
+     "competencia",
+     "String"
+    ],
+    [
+     "no_forma_organizacao",
+     "String"
+    ],
+    [
+     "versao",
+     "Int64"
+    ]
+   ],
+   "periodos": {
+    "200801": {
+     "colunas": [
+      [
+       "co_forma_organizacao",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_forma_organizacao",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "010101",
+       "200801",
+       "CONSULTAS/AVALIACOES/ATENDIMENTOS",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    },
+    "201605": {
+     "colunas": [
+      [
+       "co_forma_organizacao",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_forma_organizacao",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "010101",
+       "201605",
+       "CONSULTAS/AVALIACOES/ATENDIMENTOS",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    },
+    "202610": {
+     "colunas": [
+      [
+       "co_forma_organizacao",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_forma_organizacao",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "010101",
+       "202610",
+       "CONSULTAS/AVALIACOES/ATENDIMENTOS",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    }
+   }
+  },
+  "tb_grupo": {
+   "colunas": [
+    [
+     "co_grupo",
+     "String"
+    ],
+    [
+     "competencia",
+     "String"
+    ],
+    [
+     "dt_competencia",
+     "String"
+    ],
+    [
+     "no_grupo",
+     "String"
+    ],
+    [
+     "nu_opc",
+     "String"
+    ],
+    [
+     "versao",
+     "Int64"
+    ]
+   ],
+   "periodos": {
+    "200801": {
+     "colunas": [
+      [
+       "co_grupo",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "dt_competencia",
+       "String"
+      ],
+      [
+       "no_grupo",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "01",
+       "200801",
+       "202610",
+       "ACOES DE PROMOCAO E PREVENCAO EM SAUDE",
+       "0"
+      ],
+      [
+       "02",
+       "200801",
+       "202610",
+       "PROCEDIMENTOS COM FINALIDADE DIAGNOSTICA",
+       "0"
+      ]
+     ],
+     "linhas": 2
+    },
+    "201605": {
+     "colunas": [
+      [
+       "co_grupo",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "dt_competencia",
+       "String"
+      ],
+      [
+       "no_grupo",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "01",
+       "201605",
+       "202610",
+       "ACOES DE PROMOCAO E PREVENCAO EM SAUDE",
+       "0"
+      ],
+      [
+       "02",
+       "201605",
+       "202610",
+       "PROCEDIMENTOS COM FINALIDADE DIAGNOSTICA",
+       "0"
+      ]
+     ],
+     "linhas": 2
+    },
+    "202610": {
+     "colunas": [
+      [
+       "co_grupo",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "dt_competencia",
+       "String"
+      ],
+      [
+       "no_grupo",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "01",
+       "202610",
+       "202610",
+       "ACOES DE PROMOCAO E PREVENCAO EM SAUDE",
+       "0"
+      ],
+      [
+       "02",
+       "202610",
+       "202610",
+       "PROCEDIMENTOS COM FINALIDADE DIAGNOSTICA",
+       "0"
+      ]
+     ],
+     "linhas": 2
+    },
+    "202611": {
+     "colunas": [
+      [
+       "co_grupo",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_grupo",
+       "String"
+      ],
+      [
+       "nu_opc",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "01",
+       "202611",
+       "AÇÃO 1",
+       "",
+       "2611011000"
+      ],
+      [
+       "02",
+       "202611",
+       "AÇÃO 2",
+       "",
+       "2611011000"
+      ],
+      [
+       "03",
+       "202611",
+       "AÇÃO 3",
+       "",
+       "2611011000"
+      ],
+      [
+       "04",
+       "202611",
+       "AÇÃO 4",
+       "",
+       "2611011000"
+      ],
+      [
+       "05",
+       "202611",
+       "AÇÃO 5",
+       "9000",
+       "2611011000"
+      ],
+      [
+       "06",
+       "202611",
+       "AÇÃO 6",
+       "9000",
+       "2611011000"
+      ],
+      [
+       "07",
+       "202611",
+       "AÇÃO 7",
+       "9000",
+       "2611011000"
+      ],
+      [
+       "08",
+       "202611",
+       "AÇÃO 8",
+       "9000",
+       "2611011000"
+      ]
+     ],
+     "linhas": 8
+    },
+    "202612": {
+     "colunas": [
+      [
+       "co_grupo",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_grupo",
+       "String"
+      ],
+      [
+       "nu_opc",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "01",
+       "202612",
+       "CAMPO DE DEZEMBRO",
+       "",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    }
+   }
+  },
+  "tb_procedimento": {
+   "colunas": [
+    [
+     "co_p",
+     "String"
+    ],
+    [
+     "co_procedimento",
+     "String"
+    ],
+    [
+     "competencia",
+     "String"
+    ],
+    [
+     "no_procedimento",
+     "String"
+    ],
+    [
+     "versao",
+     "Int64"
+    ],
+    [
+     "vl_idade_minima",
+     "Int64"
+    ],
+    [
+     "vl_sa",
+     "Float64"
+    ],
+    [
+     "vl_sh",
+     "Float64"
+    ],
+    [
+     "vl_sp",
+     "Float64"
+    ]
+   ],
+   "periodos": {
+    "200801": {
+     "colunas": [
+      [
+       "co_procedimento",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_procedimento",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ],
+      [
+       "vl_sa",
+       "Float64"
+      ],
+      [
+       "vl_sh",
+       "Float64"
+      ],
+      [
+       "vl_sp",
+       "Float64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "0101010010",
+       "200801",
+       "CONSULTA MEDICA EM ATENCAO BASICA",
+       "0",
+       "0.0",
+       "10.0",
+       "0.0"
+      ],
+      [
+       "0201010020",
+       "200801",
+       "BIOPSIA DE PELE E PARTES MOLES",
+       "0",
+       "20.0",
+       "55.0",
+       "15.0"
+      ]
+     ],
+     "linhas": 2
+    },
+    "201605": {
+     "colunas": [
+      [
+       "co_procedimento",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_procedimento",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ],
+      [
+       "vl_sa",
+       "Float64"
+      ],
+      [
+       "vl_sh",
+       "Float64"
+      ],
+      [
+       "vl_sp",
+       "Float64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "0101010010",
+       "201605",
+       "CONSULTA MEDICA EM ATENCAO BASICA",
+       "0",
+       "0.0",
+       "10.0",
+       "0.0"
+      ],
+      [
+       "0201010020",
+       "201605",
+       "BIOPSIA DE PELE E PARTES MOLES",
+       "0",
+       "20.0",
+       "55.0",
+       "15.0"
+      ]
+     ],
+     "linhas": 2
+    },
+    "202610": {
+     "colunas": [
+      [
+       "co_procedimento",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_procedimento",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ],
+      [
+       "vl_sa",
+       "Float64"
+      ],
+      [
+       "vl_sh",
+       "Float64"
+      ],
+      [
+       "vl_sp",
+       "Float64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "0101010010",
+       "202610",
+       "CONSULTA MEDICA EM ATENCAO BASICA",
+       "0",
+       "0.0",
+       "10.0",
+       "0.0"
+      ],
+      [
+       "0201010020",
+       "202610",
+       "BIOPSIA DE PELE E PARTES MOLES",
+       "0",
+       "20.0",
+       "55.0",
+       "15.0"
+      ]
+     ],
+     "linhas": 2
+    },
+    "202611": {
+     "colunas": [
+      [
+       "co_p",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ],
+      [
+       "vl_idade_minima",
+       "Int64"
+      ],
+      [
+       "vl_sh",
+       "Float64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "0001",
+       "202611",
+       "2611011000",
+       "12",
+       "10.0"
+      ],
+      [
+       "0002",
+       "202611",
+       "2611011000",
+       "24",
+       "25.5"
+      ]
+     ],
+     "linhas": 2
+    }
+   }
+  },
+  "tb_rubrica": {
+   "colunas": [
+    [
+     "co_rubrica",
+     "String"
+    ],
+    [
+     "competencia",
+     "String"
+    ],
+    [
+     "no_rubrica",
+     "String"
+    ],
+    [
+     "versao",
+     "Int64"
+    ]
+   ],
+   "periodos": {
+    "200801": {
+     "colunas": [
+      [
+       "co_rubrica",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_rubrica",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "000001",
+       "200801",
+       "ATENCAO BASICA (PAB)",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    },
+    "201605": {
+     "colunas": [
+      [
+       "co_rubrica",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_rubrica",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "000001",
+       "201605",
+       "ATENCAO BASICA (PAB)",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    },
+    "202610": {
+     "colunas": [
+      [
+       "co_rubrica",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_rubrica",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "000001",
+       "202610",
+       "ATENCAO BASICA (PAB)",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    }
+   }
+  },
+  "tb_subgrupo": {
+   "colunas": [
+    [
+     "co_subgrupo",
+     "String"
+    ],
+    [
+     "competencia",
+     "String"
+    ],
+    [
+     "no_subgrupo",
+     "String"
+    ],
+    [
+     "versao",
+     "Int64"
+    ]
+   ],
+   "periodos": {
+    "200801": {
+     "colunas": [
+      [
+       "co_subgrupo",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_subgrupo",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "0101",
+       "200801",
+       "ACOES COLETIVAS/INDIVIDUAIS EM SAUDE",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    },
+    "201605": {
+     "colunas": [
+      [
+       "co_subgrupo",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_subgrupo",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "0101",
+       "201605",
+       "ACOES COLETIVAS/INDIVIDUAIS EM SAUDE",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    },
+    "202610": {
+     "colunas": [
+      [
+       "co_subgrupo",
+       "String"
+      ],
+      [
+       "competencia",
+       "String"
+      ],
+      [
+       "no_subgrupo",
+       "String"
+      ],
+      [
+       "versao",
+       "Int64"
+      ]
+     ],
+     "conteudo": [
+      [
+       "0101",
+       "202610",
+       "ACOES COLETIVAS/INDIVIDUAIS EM SAUDE",
+       "0"
+      ]
+     ],
+     "linhas": 1
+    }
+   }
+  }
+ }
+}
