@@ -1,0 +1,47 @@
+{
+  "fonte": "sigtap",
+  "dataset": "tb_forma_organizacao",
+  "gerado_em": "2026-11-16T00:25:03+00:00",
+  "particoes": [
+    "competencia"
+  ],
+  "colunas": [
+    {
+      "nome": "versao",
+      "tipos": [
+        "int64"
+      ]
+    },
+    {
+      "nome": "co_grupo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "co_sub_grupo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "co_forma_organizacao",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "no_forma_organizacao",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "dt_competencia",
+      "tipos": [
+        "large_string"
+      ]
+    }
+  ],
+  "arquivos": 227
+}

@@ -1,0 +1,29 @@
+{
+  "fonte": "sigtap",
+  "dataset": "rl_procedimento_renases",
+  "gerado_em": "2026-11-16T00:25:03+00:00",
+  "particoes": [
+    "competencia"
+  ],
+  "colunas": [
+    {
+      "nome": "versao",
+      "tipos": [
+        "int64"
+      ]
+    },
+    {
+      "nome": "co_procedimento",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "co_renases",
+      "tipos": [
+        "large_string"
+      ]
+    }
+  ],
+  "arquivos": 137
+}

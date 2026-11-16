@@ -1,0 +1,41 @@
+{
+  "fonte": "sigtap",
+  "dataset": "tb_servico_classificacao",
+  "gerado_em": "2026-11-16T00:25:04+00:00",
+  "particoes": [
+    "competencia"
+  ],
+  "colunas": [
+    {
+      "nome": "versao",
+      "tipos": [
+        "int64"
+      ]
+    },
+    {
+      "nome": "co_servico",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "co_classificacao",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "no_classificacao",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "dt_competencia",
+      "tipos": [
+        "large_string"
+      ]
+    }
+  ],
+  "arquivos": 227
+}

@@ -1,0 +1,53 @@
+{
+  "fonte": "sigtap",
+  "dataset": "rl_procedimento_incremento",
+  "gerado_em": "2026-11-16T00:25:03+00:00",
+  "particoes": [
+    "competencia"
+  ],
+  "colunas": [
+    {
+      "nome": "versao",
+      "tipos": [
+        "int64"
+      ]
+    },
+    {
+      "nome": "co_procedimento",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "co_habilitacao",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "vl_percentual_sh",
+      "tipos": [
+        "double"
+      ]
+    },
+    {
+      "nome": "vl_percentual_sa",
+      "tipos": [
+        "double"
+      ]
+    },
+    {
+      "nome": "vl_percentual_sp",
+      "tipos": [
+        "double"
+      ]
+    },
+    {
+      "nome": "dt_competencia",
+      "tipos": [
+        "large_string"
+      ]
+    }
+  ],
+  "arquivos": 227
+}

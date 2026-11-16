@@ -1,0 +1,53 @@
+{
+  "fonte": "sigtap",
+  "dataset": "tb_cid",
+  "gerado_em": "2026-11-16T00:25:03+00:00",
+  "particoes": [
+    "competencia"
+  ],
+  "colunas": [
+    {
+      "nome": "versao",
+      "tipos": [
+        "int64"
+      ]
+    },
+    {
+      "nome": "co_cid",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "no_cid",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "tp_agravo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "tp_sexo",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "tp_estadio",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "vl_campos_irradiados",
+      "tipos": [
+        "int64"
+      ]
+    }
+  ],
+  "arquivos": 227
+}

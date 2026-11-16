@@ -1,0 +1,59 @@
+{
+  "fonte": "sigtap",
+  "dataset": "rl_procedimento_compativel",
+  "gerado_em": "2026-11-16T00:25:03+00:00",
+  "particoes": [
+    "competencia"
+  ],
+  "colunas": [
+    {
+      "nome": "versao",
+      "tipos": [
+        "int64"
+      ]
+    },
+    {
+      "nome": "co_procedimento_principal",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "co_registro_principal",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "co_procedimento_compativel",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "co_registro_compativel",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "tp_compatibilidade",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "qt_permitida",
+      "tipos": [
+        "int64"
+      ]
+    },
+    {
+      "nome": "dt_competencia",
+      "tipos": [
+        "large_string"
+      ]
+    }
+  ],
+  "arquivos": 227
+}
