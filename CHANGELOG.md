@@ -13,6 +13,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   - depois: `ano=2026/mes=10/TabelaUnificada_202610.parquet`.
   - A coluna `competencia` (AAAAMM, texto) deixa de ser a pasta e passa a ser coluna de dados, com os mesmos valores, de modo que `WHERE competencia = '202610'` continua valendo; `ano` (inteiro) e `mes` (texto de 2 dígitos) vêm das pastas. Não há o que agrupar: o número de arquivos não muda.
   - Na reconversão a pasta antiga `competencia=AAAAMM/` de cada tabela é apagada sozinha depois que a nova é publicada (só os Parquets deste dataset; qualquer outro arquivo fica e a pasta só some se esvaziar). Rodar a conversão de novo sobre um lake já migrado não reescreve nada.
+  - Toda pasta `competencia=*` que sobrar ao fim de `convert` (competência fora do bruto visto, tabela sem layout, tabela vazia, ZIP com falha, ou arquivo alheio dentro dela) é listada em `ConvertResult.errors`, com o caminho e o motivo provável; nada além do que a migração substitui é apagado.
 - Exige `quantilica-analytics>=0.12.0` no extra `analysis`.
 - Documentação dos dados: partições `ano` e `mes`, `competencia` como coluna do conversor, esquemas com a coluna `competencia` (regerar os esquemas do lake depois da reconversão).
 

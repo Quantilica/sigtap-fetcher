@@ -285,6 +285,10 @@ class SigtapLakeConverter:
             if m_z:
                 zip_comps.append((m_z.group(m_z.lastindex or 0), z))
         borrowed_cache: dict[tuple[str, str], list[FixedField] | None] = {}
+        # Para explicar, no fim, por que uma pasta ``competencia=`` antiga sobrou.
+        motivos: dict[tuple[str, str], str] = {}
+        tabelas_do_zip: dict[str, set[str]] = {}
+        zips_com_falha: set[str] = set()
 
         for zpath in zip_files:
             match = COMPETENCIA_RE.search(zpath.name)
@@ -305,6 +309,7 @@ class SigtapLakeConverter:
                     layouts = _extract_layouts_from_zip(zf)
                     names = zf.namelist()
                     data_files = [n for n in names if _is_table_member(n)]
+                    tabelas_do_zip[comp] = {Path(n).stem.lower() for n in data_files}
 
                     for dfile in data_files:
                         table_name = Path(dfile).stem.lower()
@@ -339,6 +344,9 @@ class SigtapLakeConverter:
                                 table_name, comp, zip_comps, borrowed_cache
                             )
                             if borrowed is None:
+                                motivos[(table_name, comp)] = (
+                                    "tabela sem arquivo de layout, nao convertida"
+                                )
                                 res.errors.append(
                                     f"{zpath.name}: {table_name} sem arquivo de "
                                     f"layout ({table_name}_layout.txt) nem em outra "
@@ -350,6 +358,10 @@ class SigtapLakeConverter:
                                 (len(x.rstrip("\r\n")) for x in lines), default=0
                             )
                             if width != _layout_width(layout):
+                                motivos[(table_name, comp)] = (
+                                    "layout emprestado incompativel, tabela nao "
+                                    "convertida"
+                                )
                                 res.errors.append(
                                     f"{zpath.name}: {table_name} sem layout; o de "
                                     f"{src_comp} e incompativel (largura "
@@ -375,8 +387,43 @@ class SigtapLakeConverter:
                                 writer.dataset_dir, table_name, comp
                             )
                             res.converted += 1
+                        else:
+                            motivos[(table_name, comp)] = (
+                                "tabela vazia no ZIP, nada foi convertido"
+                            )
             except Exception as exc:
+                zips_com_falha.add(comp)
                 res.errors.append(f"Erro em {zpath.name}: {exc}")
+
+        # Nada e apagado aqui: a pasta antiga que sobrou e relatada para o operador.
+        vistas = {c for c, _ in zip_comps}
+        lake_sigtap = lake_dir / SOURCE_ID
+        if lake_sigtap.is_dir():
+            for tdir in sorted(p for p in lake_sigtap.iterdir() if p.is_dir()):
+                if target_datasets and tdir.name not in target_datasets:
+                    continue
+                for legacy in sorted(tdir.glob("competencia=*")):
+                    comp = legacy.name.split("=", 1)[1]
+                    motivo = motivos.get((tdir.name, comp))
+                    if motivo is None and comp in zips_com_falha:
+                        motivo = "falha ao ler ou converter o ZIP da competencia"
+                    elif motivo is None and comp not in vistas:
+                        motivo = (
+                            "competencia fora do bruto visto (ZIP ausente ou sem "
+                            "nome reconhecivel)"
+                        )
+                    elif motivo is None and tdir.name not in tabelas_do_zip.get(
+                        comp, set()
+                    ):
+                        motivo = "a tabela nao esta no ZIP desta competencia"
+                    elif motivo is None:
+                        motivo = (
+                            "a pasta ainda tem arquivo que nao e Parquet deste dataset"
+                        )
+                    res.errors.append(
+                        f"sigtap/{tdir.name}: pasta do layout antigo mantida "
+                        f"({motivo}); apague a mao se for residuo: {legacy}"
+                    )
 
         return res
 

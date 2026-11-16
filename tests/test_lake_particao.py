@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,8 @@ def _legacy_convert(raw: Path, lake: Path, monkeypatch: pytest.MonkeyPatch) -> N
         m.setattr(lake_mod, "competencia_partitions", lambda c: {"competencia": c})
         m.setattr(lake_mod, "_remove_legacy_partition", lambda *a, **k: 0)
         res = converter.convert(raw, lake)
-    assert not res.errors
+    # a simulação grava em competencia=, que o conversor novo relata como resíduo
+    assert all("pasta do layout antigo" in e for e in res.errors)
 
 
 def _parquets(lake: Path) -> list[Path]:
@@ -116,7 +118,8 @@ def test_migracao_nao_apaga_o_que_nao_e_do_dataset(
 
     res = converter.convert(raw, lake)
 
-    assert not res.errors
+    # a pasta com o arquivo alheio fica e é relatada, com o caminho
+    assert len(res.errors) == 1 and str(pasta) in res.errors[0]
     assert outro.exists()  # rodapé de tb_procedimento: não é de tb_grupo
     assert not (pasta / "TabelaUnificada_202610.parquet").exists()
     assert (
@@ -180,3 +183,54 @@ def test_rodape_da_particao_nova(raw: Path, tmp_path: Path) -> None:
     meta = pq.ParquetFile(arquivo).metadata.metadata
     assert meta[b"quantilica.dataset_id"] == b"tb_grupo"
     assert "competencia" in pq.ParquetFile(arquivo).schema_arrow.names
+
+
+def test_pasta_antiga_de_competencia_fora_da_visao_e_erro_e_nao_e_apagada(
+    raw: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lake = tmp_path / "lake"
+    _legacy_convert(raw, lake, monkeypatch)
+    # A competência 200801 sai do bruto antes da reconversão.
+    for z in raw.glob("tabelas/TabelaUnificada_200801*.zip"):
+        z.unlink()
+
+    res = converter.convert(raw, lake)
+
+    antigas = sorted((lake / "sigtap").glob("*/competencia=200801"))
+    assert len(antigas) == 5  # as 5 tabelas da fixture
+    assert all(list(p.glob("*.parquet")) for p in antigas)  # nada foi apagado
+    assert len(res.errors) == 5
+    for pasta in antigas:
+        erro = next(e for e in res.errors if str(pasta) in e)
+        assert "fora do bruto visto" in erro and f"sigtap/{pasta.parent.name}" in erro
+    # as demais competências migraram normalmente
+    assert not list((lake / "sigtap").glob("*/competencia=2026*"))
+    assert not list((lake / "sigtap").glob("*/competencia=201605"))
+
+
+def test_pasta_antiga_de_tabela_sem_layout_e_relatada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from .test_lake import _zip
+
+    raw = tmp_path / "raw" / "tabelas"
+    raw.mkdir(parents=True)
+    layout = "Coluna,Tamanho,Inicio,Fim,Tipo\nCO_A,2,1,2,VARCHAR2\n"
+    zip_path = raw / "TabelaUnificada_202610@20261101.zip"
+    _zip(zip_path, {"tb_grupo": (layout, "01\n"), "tb_vazia": (layout, "")})
+    lake = tmp_path / "lake"
+    _legacy_convert(tmp_path / "raw", lake, monkeypatch)
+    # Reconversão com um ZIP em que tb_grupo perdeu o layout e a tabela vazia segue
+    # vazia: as pastas antigas ficam, com o motivo.
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("tb_grupo.txt", b"01\n")
+        zf.writestr("tb_vazia_layout.txt", layout)
+        zf.writestr("tb_vazia.txt", b"")
+
+    res = converter.convert(tmp_path / "raw", lake)
+
+    por_tabela = {
+        t: [e for e in res.errors if f"sigtap/{t}:" in e] for t in ("tb_grupo",)
+    }
+    assert any("sem arquivo de layout" in e for e in por_tabela["tb_grupo"])
+    assert (lake / "sigtap/tb_grupo/competencia=202610").is_dir()
