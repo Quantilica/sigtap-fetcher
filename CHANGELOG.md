@@ -7,6 +7,8 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+
+## [0.5.0] - 2026-11-16
 ### Alterado
 - **Quebra de layout no lake: a competência passa a `ano=AAAA/mes=MM/`.** Cada tabela continua com um Parquet por competência, com o mesmo conteúdo, mas a pasta muda. Antes e depois, em `sigtap/<tabela>/`:
   - antes: `competencia=202610/TabelaUnificada_202610.parquet`;
