@@ -10,8 +10,14 @@ from typing import Any
 
 try:
     import polars as pl
+    import pyarrow.parquet as pq
     from quantilica.analytics.fixed_width import FixedField, layout_from_datasus
-    from quantilica.analytics.lake import ConvertResult, LakeWriter
+    from quantilica.analytics.lake import (
+        META_MEMBERS,
+        ConvertResult,
+        LakeWriter,
+        footer_from_metadata,
+    )
     from quantilica.core.lake import (
         DatasetDescriptor,
         composite_file_key,
@@ -35,6 +41,48 @@ from sigtap_fetcher.constants import (
 logger = logging.getLogger(__name__)
 
 SOURCE_ID = "sigtap"
+PARTITION_KEYS = ["ano", "mes"]
+
+
+def competencia_partitions(comp: str) -> dict[str, Any]:
+    """Partição ``ano=AAAA/mes=MM`` de uma competência ``AAAAMM``."""
+    return {"ano": int(comp[:4]), "mes": comp[4:6]}
+
+
+def _remove_legacy_partition(dataset_dir: Path, dataset_id: str, comp: str) -> int:
+    """Apaga a pasta ``competencia=AAAAMM`` do layout anterior, já substituída.
+
+    Antes da partição por ano e mês, cada competência ficava em
+    ``competencia=AAAAMM/``. A competência agora publicada em ``ano=/mes=`` traz
+    todas as linhas da pasta antiga (a versão vigente do ZIP da competência), então
+    os Parquets dela, escritos por este dataset, são removidos. Parquet de outro
+    dataset, agrupado ou ilegível fica onde está, e a pasta só some se esvaziar.
+    Devolve quantos arquivos apagou.
+    """
+    legacy = dataset_dir / f"competencia={comp}"
+    if not legacy.is_dir():
+        return 0
+    removed = 0
+    for path in sorted(legacy.glob("*.parquet")):
+        try:
+            meta = footer_from_metadata(pq.ParquetFile(path).metadata)
+        except Exception:
+            logger.warning("sigtap: %s ilegivel; mantido", path)
+            continue
+        if (
+            meta.get("quantilica.source_id") != SOURCE_ID
+            or meta.get("quantilica.dataset_id") != dataset_id
+            or META_MEMBERS in meta
+        ):
+            logger.warning("sigtap: %s nao e deste dataset; mantido", path)
+            continue
+        path.unlink()
+        removed += 1
+    try:
+        legacy.rmdir()  # so se esvaziou
+    except OSError:
+        pass
+    return removed
 
 
 def _extract_layouts_from_zip(zf: zipfile.ZipFile) -> dict[str, list[FixedField]]:
@@ -224,8 +272,8 @@ class SigtapLakeConverter:
                         source_id=SOURCE_ID,
                         dataset_id=table_name,
                         alias=table_name,
-                        partition_keys=["competencia"],
-                        partition_types=partition_types_for(["competencia"]),
+                        partition_keys=PARTITION_KEYS,
+                        partition_types=partition_types_for(PARTITION_KEYS),
                     ),
                     force=force,
                 )
@@ -266,12 +314,16 @@ class SigtapLakeConverter:
                         writer = get_writer(table_name)
                         # Sem membro (a tabela e o dataset): igual a file_key(zpath).
                         file_key_name = composite_file_key(zpath)
+                        partitions = competencia_partitions(comp)
                         if not force and writer.is_current(
                             zpath,
-                            partitions={"competencia": comp},
+                            partitions=partitions,
                             file_key_name=file_key_name,
                         ):
                             res.skipped += 1
+                            _remove_legacy_partition(
+                                writer.dataset_dir, table_name, comp
+                            )
                             continue
 
                         # Cada tabela tem o seu `<tabela>_layout.txt`. Sem ele a
@@ -316,8 +368,11 @@ class SigtapLakeConverter:
                             writer.write_polars(
                                 df,
                                 zpath,
-                                partitions={"competencia": comp},
+                                partitions=partitions,
                                 file_key_name=file_key_name,
+                            )
+                            _remove_legacy_partition(
+                                writer.dataset_dir, table_name, comp
                             )
                             res.converted += 1
             except Exception as exc:
