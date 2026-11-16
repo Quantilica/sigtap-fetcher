@@ -73,17 +73,17 @@ Esta tabela não consta da planilha oficial de layout do ZIP (que traz só as co
 | `co_procedimento` | `CO_PROCEDIMENTO` | texto | Código do procedimento, 10 dígitos: os seis primeiros dão grupo (2), subgrupo (2) e forma de organização (2); os quatro últimos identificam o procedimento dentro da forma de organização | — | todo |
 | `co_tuss` | `CO_TUSS` | texto | Código TUSS; ligaria com `tb_tuss` | — | todo |
 | `versao` | — (nome do ZIP) | inteiro | Versão da publicação: sufixo `_v` do nome do ZIP, no formato AAMMDDHHMM (data e hora em que o DATASUS gerou o arquivo); 0 quando o nome do ZIP não traz sufixo (competências de 2008-01 a 2009-04) | AAMMDDHHMM; 0 = sem sufixo | todo |
-| `competencia` | — (partição) | texto | Competência (AAAAMM) do ZIP de que a linha veio | AAAAMM | todo |
+| `competencia` | — (conversor) | texto | Competência (AAAAMM) do ZIP de que a linha veio; igual a `ano` e `mes` juntos | AAAAMM | todo |
 
 ## No lake
 
 - Sem dataset no lake: o conversor não grava Parquet para arquivo sem linhas, então `sigtap/rl_procedimento_tuss` não existe (estado `so-bruto`: só o ZIP bruto traz o arquivo, vazio).
-- Se a fonte passar a preencher a tabela, o conversor a grava como as demais relações, particionada por `competencia`, com as colunas `co_procedimento`, `co_tuss`, `versao` e a partição.
+- Se a fonte passar a preencher a tabela, o conversor a grava como as demais relações, particionada por `ano` e `mes`, com as colunas `co_procedimento`, `co_tuss`, `versao` e `competencia`.
 - O conversor lê cada linha de largura fixa com o layout do próprio ZIP, aparando espaços nas pontas; campo em branco vira nulo e texto é decodificado de ISO-8859-1 para UTF-8.
 - Colunas numéricas viram inteiros ou decimais conforme o layout; valor que não converte vira nulo. Os valores `9999` que a fonte usa como 'não se aplica' ficam como estão.
 - Linhas totalmente em branco são ignoradas. Se um ZIP traz mais de uma versão da mesma competência, só a de maior sufixo `_v` é convertida.
-- As colunas `versao` (sufixo `_v` do ZIP) e a partição `competencia` são acrescentadas pelo conversor.
-- O layout desta tabela não tem `DT_COMPETENCIA`; a competência só consta da partição.
+- As colunas `versao` (sufixo `_v` do ZIP) e `competencia` (AAAAMM, igual às pastas `ano=`/`mes=`) são acrescentadas pelo conversor.
+- O layout desta tabela não tem `DT_COMPETENCIA`; a competência só consta da coluna `competencia` (e das pastas `ano=`/`mes=`).
 
 ## Cuidados de uso
 

@@ -12,7 +12,7 @@ dataset:
   unidade: "um procedimento vigente na competência"
   granularidade: {espacial: "nacional (sem recorte geográfico)", temporal: competência mensal}
   formato_bruto: "ZIP mensal com arquivos TXT de largura fixa, ISO-8859-1, sem separador, um arquivo por tabela; o layout vem em arquivos de texto no próprio ZIP"
-  lake: {estado: convertido, particoes: [competencia], chave: [competencia, co_procedimento], colunas: 17}
+  lake: {estado: convertido, particoes: [ano, mes], chave: [competencia, co_procedimento], colunas: 18}
   unidades_de_medida:
     qt_maxima_execucao: "execuções (9999 = não se aplica)"
     qt_dias_permanencia: "dias (9999 = não se aplica)"
@@ -54,9 +54,9 @@ A tabela central do SIGTAP: um registro por procedimento, medicamento ou órtese
 | Granularidade | espacial: nacional (sem recorte geográfico); temporal: competência mensal |
 | Formato bruto | ZIP mensal com arquivos TXT de largura fixa, ISO-8859-1, sem separador, um arquivo por tabela; o layout vem em arquivos de texto no próprio ZIP |
 | Estado no lake | convertido |
-| Partições | `competencia` |
+| Partições | `ano`, `mes` |
 | Chave | `competencia`, `co_procedimento` |
-| Colunas | 17 |
+| Colunas | 18 |
 | Unidades de medida | `qt_maxima_execucao`: execuções (9999 = não se aplica); `qt_dias_permanencia`: dias (9999 = não se aplica); `qt_pontos`: pontos; `vl_idade_minima`: meses (9999 = não se aplica); `vl_idade_maxima`: meses (9999 = não se aplica); `vl_sh`: R$; `vl_sa`: R$; `vl_sp`: R$; `qt_tempo_permanencia`: unidade não informada pela fonte (9999 = não se aplica); `versao`: AAMMDDHHMM (identificador da publicação, sem unidade) |
 | Dados pessoais | nenhum |
 | Eras | 2012-09: a tabela ganha a coluna QT_TEMPO_PERMANENCIA; 2025-06: larguras do arquivo mudam: VL_SH 10→12; VL_SA 10→12; VL_SP 10→12 |
@@ -102,17 +102,17 @@ As descrições seguem a planilha oficial de layout do ZIP ('DATASUS - Tabela de
 | `co_financiamento` | `CO_FINANCIAMENTO` | texto | Tipo de financiamento do procedimento; liga com `tb_financiamento` | `01`, `02`, `04` a `08` (ver `tb_financiamento`) | todo |
 | `co_rubrica` | `CO_RUBRICA` | texto | Rubrica do procedimento (financiamento + subtipo); nula quando o procedimento não tem rubrica. Liga com `tb_rubrica` | 6 dígitos; os dois primeiros repetem `co_financiamento` | todo |
 | `qt_tempo_permanencia` | `QT_TEMPO_PERMANENCIA` | inteiro | Tempo de permanência do procedimento; a fonte não descreve a coluna (ausente da planilha oficial) | 9999 = não se aplica | desde 2012-09 |
-| `dt_competencia` | `DT_COMPETENCIA` | texto | Competência de validade do registro (AAAAMM). Igual à partição `competencia` em todas as linhas conferidas | AAAAMM | todo |
+| `dt_competencia` | `DT_COMPETENCIA` | texto | Competência de validade do registro (AAAAMM). Igual à coluna `competencia` em todas as linhas conferidas | AAAAMM | todo |
 | `versao` | — (nome do ZIP) | inteiro | Versão da publicação: sufixo `_v` do nome do ZIP, no formato AAMMDDHHMM (data e hora em que o DATASUS gerou o arquivo); 0 quando o nome do ZIP não traz sufixo (competências de 2008-01 a 2009-04) | AAMMDDHHMM; 0 = sem sufixo | todo |
-| `competencia` | — (partição) | texto | Competência (AAAAMM) do ZIP de que a linha veio | AAAAMM | todo |
+| `competencia` | — (conversor) | texto | Competência (AAAAMM) do ZIP de que a linha veio; igual a `ano` e `mes` juntos | AAAAMM | todo |
 
 ## No lake
 
-- Dataset `sigtap/tb_procedimento`, particionado por `competencia` (AAAAMM, texto); um arquivo Parquet por ZIP de competência.
+- Dataset `sigtap/tb_procedimento`, particionado por `ano` (inteiro) e `mes` (texto de 2 dígitos, `05`); um arquivo Parquet por ZIP de competência, em `ano=AAAA/mes=MM/`.
 - O conversor lê cada linha de largura fixa com o layout do próprio ZIP, aparando espaços nas pontas; campo em branco vira nulo e texto é decodificado de ISO-8859-1 para UTF-8.
 - Colunas numéricas viram inteiros ou decimais conforme o layout; valor que não converte vira nulo. Os valores `9999` que a fonte usa como 'não se aplica' ficam como estão.
 - Linhas totalmente em branco são ignoradas. Se um ZIP traz mais de uma versão da mesma competência, só a de maior sufixo `_v` é convertida.
-- As colunas `versao` (sufixo `_v` do ZIP) e a partição `competencia` são acrescentadas pelo conversor.
+- As colunas `versao` (sufixo `_v` do ZIP) e `competencia` (AAAAMM, igual às pastas `ano=`/`mes=`) são acrescentadas pelo conversor.
 - `dt_competencia` é a coluna do arquivo, mantida como texto.
 - Os valores `vl_sh`, `vl_sa` e `vl_sp` são lidos como centavos e divididos por 100.
 - As colunas `vl_idade_minima`, `vl_idade_maxima` e `qt_*` são inteiros; o conversor os lê como inteiros mesmo quando o layout automático as trataria como decimais.

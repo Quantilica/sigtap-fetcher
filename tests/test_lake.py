@@ -251,7 +251,9 @@ def test_layout_ausente_usa_o_da_competencia_mais_proxima(tmp_path: Path) -> Non
     lake = tmp_path / "lake"
     res = converter.convert(tmp_path / "raw", lake)
     assert res.errors == [], res.errors
-    old = pl.read_parquet(lake / "sigtap" / tabela / "competencia=201412" / "*.parquet")
+    old = pl.read_parquet(
+        lake / "sigtap" / tabela / "ano=2014" / "mes=12" / "*.parquet"
+    )
     assert old.height == 2
     assert old["co_a"].to_list() == ["aa", "cc"]
     assert old["co_b"].to_list() == ["bb", "dd"]
@@ -267,4 +269,4 @@ def test_layout_emprestado_incompativel_e_erro(tmp_path: Path) -> None:
     res = converter.convert(tmp_path / "raw", tmp_path / "lake")
     assert len(res.errors) == 1
     assert "201412" in res.errors[0] and "incompat" in res.errors[0]
-    assert not (tmp_path / "lake" / "sigtap" / tabela / "competencia=201412").exists()
+    assert not (tmp_path / "lake" / "sigtap" / tabela / "ano=2014").exists()

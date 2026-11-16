@@ -12,7 +12,7 @@ dataset:
   unidade: "um grupo de habilitações vigente na competência"
   granularidade: {espacial: "nacional (sem recorte geográfico)", temporal: competência mensal}
   formato_bruto: "ZIP mensal com arquivos TXT de largura fixa, ISO-8859-1, sem separador, um arquivo por tabela; o layout vem em arquivos de texto no próprio ZIP"
-  lake: {estado: convertido, particoes: [competencia], chave: [competencia, nu_grupo_habilitacao], colunas: 4}
+  lake: {estado: convertido, particoes: [ano, mes], chave: [competencia, nu_grupo_habilitacao], colunas: 5}
   unidades_de_medida:
     versao: "AAMMDDHHMM (identificador da publicação, sem unidade)"
   dados_pessoais: nenhum
@@ -43,9 +43,9 @@ Grupos de habilitações exigidas em conjunto: um procedimento ligado a um grupo
 | Granularidade | espacial: nacional (sem recorte geográfico); temporal: competência mensal |
 | Formato bruto | ZIP mensal com arquivos TXT de largura fixa, ISO-8859-1, sem separador, um arquivo por tabela; o layout vem em arquivos de texto no próprio ZIP |
 | Estado no lake | convertido |
-| Partições | `competencia` |
+| Partições | `ano`, `mes` |
 | Chave | `competencia`, `nu_grupo_habilitacao` |
-| Colunas | 4 |
+| Colunas | 5 |
 | Unidades de medida | `versao`: AAMMDDHHMM (identificador da publicação, sem unidade) |
 | Dados pessoais | nenhum |
 | Eras | nenhuma |
@@ -76,16 +76,16 @@ As descrições seguem a planilha oficial de layout do ZIP ('DATASUS - Tabela de
 | `no_grupo_habilitacao` | `NO_GRUPO_HABILITACAO` | texto | Nome curto do grupo (até 20 caracteres), normalmente as habilitações que o compõem, como `0801 e 0803` | — | todo |
 | `ds_grupo_habilitacao` | `DS_GRUPO_HABILITACAO` | texto | Descrição longa do grupo (até 250 caracteres) | — | todo |
 | `versao` | — (nome do ZIP) | inteiro | Versão da publicação: sufixo `_v` do nome do ZIP, no formato AAMMDDHHMM (data e hora em que o DATASUS gerou o arquivo); 0 quando o nome do ZIP não traz sufixo (competências de 2008-01 a 2009-04) | AAMMDDHHMM; 0 = sem sufixo | todo |
-| `competencia` | — (partição) | texto | Competência (AAAAMM) do ZIP de que a linha veio | AAAAMM | todo |
+| `competencia` | — (conversor) | texto | Competência (AAAAMM) do ZIP de que a linha veio; igual a `ano` e `mes` juntos | AAAAMM | todo |
 
 ## No lake
 
-- Dataset `sigtap/tb_grupo_habilitacao`, particionado por `competencia` (AAAAMM, texto); um arquivo Parquet por ZIP de competência.
+- Dataset `sigtap/tb_grupo_habilitacao`, particionado por `ano` (inteiro) e `mes` (texto de 2 dígitos, `05`); um arquivo Parquet por ZIP de competência, em `ano=AAAA/mes=MM/`.
 - O conversor lê cada linha de largura fixa com o layout do próprio ZIP, aparando espaços nas pontas; campo em branco vira nulo e texto é decodificado de ISO-8859-1 para UTF-8.
 - Colunas numéricas viram inteiros ou decimais conforme o layout; valor que não converte vira nulo. Os valores `9999` que a fonte usa como 'não se aplica' ficam como estão.
 - Linhas totalmente em branco são ignoradas. Se um ZIP traz mais de uma versão da mesma competência, só a de maior sufixo `_v` é convertida.
-- As colunas `versao` (sufixo `_v` do ZIP) e a partição `competencia` são acrescentadas pelo conversor.
-- O layout desta tabela não tem `DT_COMPETENCIA`; a competência só consta da partição.
+- As colunas `versao` (sufixo `_v` do ZIP) e `competencia` (AAAAMM, igual às pastas `ano=`/`mes=`) são acrescentadas pelo conversor.
+- O layout desta tabela não tem `DT_COMPETENCIA`; a competência só consta da coluna `competencia` (e das pastas `ano=`/`mes=`).
 
 ## Cuidados de uso
 

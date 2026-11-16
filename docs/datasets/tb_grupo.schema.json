@@ -3,7 +3,8 @@
   "dataset": "tb_grupo",
   "gerado_em": "2026-11-16T00:25:03+00:00",
   "particoes": [
-    "competencia"
+    "ano",
+    "mes"
   ],
   "colunas": [
     {
@@ -26,6 +27,12 @@
     },
     {
       "nome": "dt_competencia",
+      "tipos": [
+        "large_string"
+      ]
+    },
+    {
+      "nome": "competencia",
       "tipos": [
         "large_string"
       ]

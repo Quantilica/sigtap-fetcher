@@ -12,7 +12,7 @@ dataset:
   unidade: "um código da CID-10 (categoria de três caracteres ou subcategoria de quatro) vigente na competência"
   granularidade: {espacial: "nacional (sem recorte geográfico)", temporal: competência mensal}
   formato_bruto: "ZIP mensal com arquivos TXT de largura fixa, ISO-8859-1, sem separador, um arquivo por tabela; o layout vem em arquivos de texto no próprio ZIP"
-  lake: {estado: convertido, particoes: [competencia], chave: [competencia, co_cid], colunas: 7}
+  lake: {estado: convertido, particoes: [ano, mes], chave: [competencia, co_cid], colunas: 8}
   unidades_de_medida:
     vl_campos_irradiados: "campos"
     versao: "AAMMDDHHMM (identificador da publicação, sem unidade)"
@@ -45,9 +45,9 @@ Classificação Internacional de Doenças (CID-10) como usada pelo SIGTAP, com o
 | Granularidade | espacial: nacional (sem recorte geográfico); temporal: competência mensal |
 | Formato bruto | ZIP mensal com arquivos TXT de largura fixa, ISO-8859-1, sem separador, um arquivo por tabela; o layout vem em arquivos de texto no próprio ZIP |
 | Estado no lake | convertido |
-| Partições | `competencia` |
+| Partições | `ano`, `mes` |
 | Chave | `competencia`, `co_cid` |
-| Colunas | 7 |
+| Colunas | 8 |
 | Unidades de medida | `vl_campos_irradiados`: campos; `versao`: AAMMDDHHMM (identificador da publicação, sem unidade) |
 | Dados pessoais | nenhum |
 | Eras | 2011-04: a tabela ganha as colunas TP_ESTADIO, VL_CAMPOS_IRRADIADOS |
@@ -83,16 +83,16 @@ As descrições seguem a planilha oficial de layout do ZIP ('DATASUS - Tabela de
 | `tp_estadio` | `TP_ESTADIO` | texto | Se o CID é estadiável (câncer) | `S` sim; `N` não | desde 2011-04 |
 | `vl_campos_irradiados` | `VL_CAMPOS_IRRADIADOS` | inteiro | Quantidade de campos irradiados associada ao código (radioterapia) | 0 a 144 em 2026-11 | desde 2011-04 |
 | `versao` | — (nome do ZIP) | inteiro | Versão da publicação: sufixo `_v` do nome do ZIP, no formato AAMMDDHHMM (data e hora em que o DATASUS gerou o arquivo); 0 quando o nome do ZIP não traz sufixo (competências de 2008-01 a 2009-04) | AAMMDDHHMM; 0 = sem sufixo | todo |
-| `competencia` | — (partição) | texto | Competência (AAAAMM) do ZIP de que a linha veio | AAAAMM | todo |
+| `competencia` | — (conversor) | texto | Competência (AAAAMM) do ZIP de que a linha veio; igual a `ano` e `mes` juntos | AAAAMM | todo |
 
 ## No lake
 
-- Dataset `sigtap/tb_cid`, particionado por `competencia` (AAAAMM, texto); um arquivo Parquet por ZIP de competência.
+- Dataset `sigtap/tb_cid`, particionado por `ano` (inteiro) e `mes` (texto de 2 dígitos, `05`); um arquivo Parquet por ZIP de competência, em `ano=AAAA/mes=MM/`.
 - O conversor lê cada linha de largura fixa com o layout do próprio ZIP, aparando espaços nas pontas; campo em branco vira nulo e texto é decodificado de ISO-8859-1 para UTF-8.
 - Colunas numéricas viram inteiros ou decimais conforme o layout; valor que não converte vira nulo. Os valores `9999` que a fonte usa como 'não se aplica' ficam como estão.
 - Linhas totalmente em branco são ignoradas. Se um ZIP traz mais de uma versão da mesma competência, só a de maior sufixo `_v` é convertida.
-- As colunas `versao` (sufixo `_v` do ZIP) e a partição `competencia` são acrescentadas pelo conversor.
-- O layout desta tabela não tem `DT_COMPETENCIA`; a competência só consta da partição.
+- As colunas `versao` (sufixo `_v` do ZIP) e `competencia` (AAAAMM, igual às pastas `ano=`/`mes=`) são acrescentadas pelo conversor.
+- O layout desta tabela não tem `DT_COMPETENCIA`; a competência só consta da coluna `competencia` (e das pastas `ano=`/`mes=`).
 
 ## Cuidados de uso
 

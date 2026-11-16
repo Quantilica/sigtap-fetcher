@@ -7,7 +7,17 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Alterado
+- **Quebra de layout no lake: a competência passa a `ano=AAAA/mes=MM/`.** Cada tabela continua com um Parquet por competência, com o mesmo conteúdo, mas a pasta muda. Antes e depois, em `sigtap/<tabela>/`:
+  - antes: `competencia=202610/TabelaUnificada_202610.parquet`;
+  - depois: `ano=2026/mes=10/TabelaUnificada_202610.parquet`.
+  - A coluna `competencia` (AAAAMM, texto) deixa de ser a pasta e passa a ser coluna de dados, com os mesmos valores, de modo que `WHERE competencia = '202610'` continua valendo; `ano` (inteiro) e `mes` (texto de 2 dígitos) vêm das pastas. Não há o que agrupar: o número de arquivos não muda.
+  - Na reconversão a pasta antiga `competencia=AAAAMM/` de cada tabela é apagada sozinha depois que a nova é publicada (só os Parquets deste dataset; qualquer outro arquivo fica e a pasta só some se esvaziar). Rodar a conversão de novo sobre um lake já migrado não reescreve nada.
+- Exige `quantilica-analytics>=0.12.0` no extra `analysis`.
+- Documentação dos dados: partições `ano` e `mes`, `competencia` como coluna do conversor, esquemas com a coluna `competencia` (regerar os esquemas do lake depois da reconversão).
+
 ### Adicionado
+- Testes de equivalência da partição: o conteúdo do lake (linhas, colunas e tipos, linhas ordenadas por tabela e competência) é igual ao do conversor da pasta `competencia=` (`tests/golden/lake_antes_da_particao.json`, gerado antes da mudança), mais segunda execução sem reescrita, migração da pasta antiga sem linhas duplicadas, `lake_audit` limpo e `profile_from_lake` com período mensal.
 - Testes: identidade do registro conferida.
 - Documentação dos dados em `docs/`, conforme a norma de documentação dos dados: página da fonte, página e esquema de referência para cada um dos 41 datasets (o esquema de `rl_procedimento_tuss` não existe porque a fonte publica a tabela vazia), com o dicionário de todas as variáveis. Um teste a verifica.
 

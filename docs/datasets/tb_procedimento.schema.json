@@ -3,7 +3,8 @@
   "dataset": "tb_procedimento",
   "gerado_em": "2026-11-16T00:25:04+00:00",
   "particoes": [
-    "competencia"
+    "ano",
+    "mes"
   ],
   "colunas": [
     {
@@ -106,6 +107,12 @@
       "nome": "qt_tempo_permanencia",
       "tipos": [
         "int64"
+      ]
+    },
+    {
+      "nome": "competencia",
+      "tipos": [
+        "large_string"
       ]
     }
   ],

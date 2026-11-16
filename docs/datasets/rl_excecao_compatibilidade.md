@@ -12,7 +12,7 @@ dataset:
   unidade: "uma exceção a uma relação de compatibilidade (restrição, principal e compatível)"
   granularidade: {espacial: "nacional (sem recorte geográfico)", temporal: competência mensal}
   formato_bruto: "ZIP mensal com arquivos TXT de largura fixa, ISO-8859-1, sem separador, um arquivo por tabela; o layout vem em arquivos de texto no próprio ZIP"
-  lake: {estado: convertido, particoes: [competencia], chave: [competencia, co_procedimento_restricao, co_procedimento_principal, co_registro_principal, co_procedimento_compativel, co_registro_compativel], colunas: 8}
+  lake: {estado: convertido, particoes: [ano, mes], chave: [competencia, co_procedimento_restricao, co_procedimento_principal, co_registro_principal, co_procedimento_compativel, co_registro_compativel], colunas: 9}
   unidades_de_medida:
     versao: "AAMMDDHHMM (identificador da publicação, sem unidade)"
   dados_pessoais: nenhum
@@ -43,9 +43,9 @@ Exceções às relações de compatibilidade: um procedimento de restrição que
 | Granularidade | espacial: nacional (sem recorte geográfico); temporal: competência mensal |
 | Formato bruto | ZIP mensal com arquivos TXT de largura fixa, ISO-8859-1, sem separador, um arquivo por tabela; o layout vem em arquivos de texto no próprio ZIP |
 | Estado no lake | convertido |
-| Partições | `competencia` |
+| Partições | `ano`, `mes` |
 | Chave | `competencia`, `co_procedimento_restricao`, `co_procedimento_principal`, `co_registro_principal`, `co_procedimento_compativel`, `co_registro_compativel` |
-| Colunas | 8 |
+| Colunas | 9 |
 | Unidades de medida | `versao`: AAMMDDHHMM (identificador da publicação, sem unidade) |
 | Dados pessoais | nenhum |
 | Eras | nenhuma |
@@ -77,17 +77,17 @@ As descrições seguem a planilha oficial de layout do ZIP ('DATASUS - Tabela de
 | `co_procedimento_compativel` | `CO_PROCEDIMENTO_COMPATIVEL` | texto | Procedimento secundário da restrição | — | todo |
 | `co_registro_compativel` | `CO_REGISTRO_COMPATIVEL` | texto | Instrumento de registro do procedimento secundário; liga com `tb_registro` | — | todo |
 | `tp_compatibilidade` | `TP_COMPATIBILIDADE` | texto | Tipo da relação negada | `2` incompatível/excludente (única observada) | todo |
-| `dt_competencia` | `DT_COMPETENCIA` | texto | Competência de validade do registro (AAAAMM). Igual à partição `competencia` em todas as linhas conferidas | AAAAMM | todo |
+| `dt_competencia` | `DT_COMPETENCIA` | texto | Competência de validade do registro (AAAAMM). Igual à coluna `competencia` em todas as linhas conferidas | AAAAMM | todo |
 | `versao` | — (nome do ZIP) | inteiro | Versão da publicação: sufixo `_v` do nome do ZIP, no formato AAMMDDHHMM (data e hora em que o DATASUS gerou o arquivo); 0 quando o nome do ZIP não traz sufixo (competências de 2008-01 a 2009-04) | AAMMDDHHMM; 0 = sem sufixo | todo |
-| `competencia` | — (partição) | texto | Competência (AAAAMM) do ZIP de que a linha veio | AAAAMM | todo |
+| `competencia` | — (conversor) | texto | Competência (AAAAMM) do ZIP de que a linha veio; igual a `ano` e `mes` juntos | AAAAMM | todo |
 
 ## No lake
 
-- Dataset `sigtap/rl_excecao_compatibilidade`, particionado por `competencia` (AAAAMM, texto); um arquivo Parquet por ZIP de competência.
+- Dataset `sigtap/rl_excecao_compatibilidade`, particionado por `ano` (inteiro) e `mes` (texto de 2 dígitos, `05`); um arquivo Parquet por ZIP de competência, em `ano=AAAA/mes=MM/`.
 - O conversor lê cada linha de largura fixa com o layout do próprio ZIP, aparando espaços nas pontas; campo em branco vira nulo e texto é decodificado de ISO-8859-1 para UTF-8.
 - Colunas numéricas viram inteiros ou decimais conforme o layout; valor que não converte vira nulo. Os valores `9999` que a fonte usa como 'não se aplica' ficam como estão.
 - Linhas totalmente em branco são ignoradas. Se um ZIP traz mais de uma versão da mesma competência, só a de maior sufixo `_v` é convertida.
-- As colunas `versao` (sufixo `_v` do ZIP) e a partição `competencia` são acrescentadas pelo conversor.
+- As colunas `versao` (sufixo `_v` do ZIP) e `competencia` (AAAAMM, igual às pastas `ano=`/`mes=`) são acrescentadas pelo conversor.
 - `dt_competencia` é a coluna do arquivo, mantida como texto.
 
 ## Cuidados de uso
