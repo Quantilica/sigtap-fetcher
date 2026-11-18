@@ -760,7 +760,9 @@ def test_force_preservando_membro_guarda_nulos_so_das_colunas_dele(
     assert "co_c" in entradas["02"]["null_counts"]
 
 
-def test_coluna_so_de_membro_removido_sai_do_esquema(tmp_path: Path) -> None:
+def test_coluna_so_de_membro_removido_sai_do_esquema(
+    tmp_path: Path, aberturas: list[str], decodificados: list[str]
+) -> None:
     raw, lake = tmp_path / "raw", tmp_path / "lake"
     _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01AA\n")})
     saindo = _zip_do_mes(raw, "202602", {"tb_x": (_L3, "02BBcc\n")})
@@ -769,12 +771,39 @@ def test_coluna_so_de_membro_removido_sai_do_esquema(tmp_path: Path) -> None:
 
     saindo.unlink()
     _zip_do_mes(raw, "202603", {"tb_x": (_L2, "03CC\n")})
-    res = converter.convert(raw, lake)
+    aberturas.clear()
+    decodificados.clear()
+    res = converter.convert(raw, lake, datasets=["tb_x"])
 
     assert res.errors == []
     assert "co_c" not in pl.read_parquet_schema(_arquivo(lake, "tb_x", 2026))
     df = pl.read_parquet(_arquivo(lake, "tb_x", 2026), hive_partitioning=False)
     assert sorted(df["mes"].to_list()) == ["01", "03"]
+    # So o membro novo e decodificado; o mantido (202601) nem tem o ZIP aberto,
+    # e so ele entra na conta de convertidos.
+    assert aberturas == ["TabelaUnificada_202603@20261101.zip"]
+    assert {d.split(":")[0] for d in decodificados} == {
+        "TabelaUnificada_202603@20261101.zip"
+    }
+    assert (res.converted, res.skipped) == (1, 1)
+
+
+def test_membro_novo_sem_coluna_que_o_mantido_tem_recebe_nulo(tmp_path: Path) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    _zip_do_mes(raw, "202601", {"tb_x": (_L3, "01AAbbcc\n")})
+    converter.convert(raw, lake)
+
+    _zip_do_mes(raw, "202602", {"tb_x": (_L2, "02BB\n")})  # sem CO_C
+    res = converter.convert(raw, lake, datasets=["tb_x"])
+
+    assert res.errors == []
+    df = pl.read_parquet(_arquivo(lake, "tb_x", 2026), hive_partitioning=False)
+    assert {m: g["co_c"].to_list() for (m,), g in df.group_by("mes")} == {
+        "01": ["bb"],
+        "02": [None],
+    }
+    entradas = {m["mes"]: m for m in _entradas_do_ano(lake, "tb_x", 2026).values()}
+    assert "co_c" not in entradas["02"]["null_counts"]  # a coluna nao era dele
 
 
 def test_tipo_de_membro_removido_nao_conflita_com_o_novo(tmp_path: Path) -> None:
@@ -790,3 +819,52 @@ def test_tipo_de_membro_removido_nao_conflita_com_o_novo(tmp_path: Path) -> None
 
     assert res.errors == []
     assert pl.read_parquet_schema(_arquivo(lake, "tb_x", 2026))["co_a"] == pl.String
+
+
+# --- preservar so com exatidao; nome fora do padrao nao apaga ----------------------
+
+
+def test_zip_ilegivel_sobre_entrada_sem_nulos_por_membro_falha_dizendo_a_causa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    ruim = _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01AA\n")})
+    _zip_do_mes(raw, "202602", {"tb_x": (_L2, "02BB\n")})
+    with monkeypatch.context() as m:
+        original = LakeWriter.write_group
+        m.setattr(
+            LakeWriter,
+            "write_group",
+            lambda self, *a, **k: original(self, *a, **{**k, "member_stats": False}),
+        )
+        converter.convert(raw, lake)  # arquivo sem null_counts
+
+    ruim.write_bytes(b"nao e zip")
+    _sidecars(raw)
+    res = converter.convert(raw, lake)
+
+    grupo = [e for e in res.errors if "tb_x" in e and "ano=2026" in e]
+    assert len(grupo) == 1
+    assert "202601" in grupo[0] and "nulos por membro" in grupo[0]
+    assert "reconverta" in grupo[0]
+    # Nada foi regravado: o arquivo segue como estava.
+    df = pl.read_parquet(_arquivo(lake, "tb_x", 2026), hive_partitioning=False)
+    assert sorted(df["mes"].to_list()) == ["01", "02"]
+
+
+def test_nome_fora_do_padrao_no_bruto_nao_apaga_arquivo_de_ano(tmp_path: Path) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    saindo = _zip_do_mes(raw, "202512", {"tb_x": (_L2, "09ZZ\n")})
+    _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01AA\n")})
+    converter.convert(raw, lake)
+
+    saindo.unlink()
+    (raw / "tabelas" / "improviso.zip").write_bytes(b"x")  # nome fora do padrao
+    res = converter.convert(raw, lake, datasets=["tb_x"])
+
+    assert len(res.errors) == 1 and "improviso.zip" in res.errors[0]
+    assert _arquivo(lake, "tb_x", 2025).is_file()  # nao apagado
+    # Corrigido o nome, a rodada seguinte apaga o ano sem origem.
+    (raw / "tabelas" / "improviso.zip").unlink()
+    assert converter.convert(raw, lake, datasets=["tb_x"]).errors == []
+    assert not _arquivo(lake, "tb_x", 2025).exists()

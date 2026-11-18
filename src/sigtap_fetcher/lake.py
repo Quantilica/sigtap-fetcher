@@ -3,7 +3,9 @@
 Cada tabela do ZIP mensal vira o membro de um grupo do ano
 (``sigtap/<tabela>/ano=AAAA/<tabela>.parquet``), com a competência ``mes`` (texto
 ``MM``) como coluna do membro. Mês novo reescreve só o arquivo do ano; competência
-em dia não abre o ZIP.
+em dia não decodifica o ZIP (com a conversão de uma tabela que ele traz, nem o abre).
+Um build sem ``datasets``, ou de uma tabela ausente em alguns anos, ainda lê o
+diretório central dos ZIPs desses anos (só a lista de membros, nada é descomprimido).
 """
 
 from __future__ import annotations
@@ -322,44 +324,36 @@ class _Conversao:
     """Uma execucao de ``convert``: escritores por tabela e caches da rodada."""
 
     def __init__(
-        self, lake_dir: Path, force: bool, zip_comps: list[tuple[str, Path]]
+        self,
+        lake_dir: Path,
+        force: bool,
+        zip_comps: list[tuple[str, Path]],
+        *,
+        pode_apagar: bool = True,
     ) -> None:
         self.lake_dir = lake_dir
         self.force = force
+        # Falso quando ha ZIP de nome fora do padrao: nao se sabe de que ano ele e,
+        # e o arquivo de um ano pode ser dele.
+        self.pode_apagar = pode_apagar
         self.zip_comps = zip_comps
         self.writers: dict[str, LakeWriter] = {}
         self.emprestados: dict[tuple[str, str], list[FixedField] | None] = {}
 
-    def writer(self, tabela: str, *, force: bool = False) -> LakeWriter:
-        if force and not self.force:
-            return self._novo_writer(tabela, force=True)
+    def writer(self, tabela: str) -> LakeWriter:
         if tabela not in self.writers:
-            self.writers[tabela] = self._novo_writer(tabela, force=self.force)
+            self.writers[tabela] = LakeWriter(
+                self.lake_dir / SOURCE_ID / tabela,
+                DatasetDescriptor(
+                    source_id=SOURCE_ID,
+                    dataset_id=tabela,
+                    alias=tabela,
+                    partition_keys=PARTITION_KEYS,
+                    partition_types=partition_types_for(PARTITION_KEYS),
+                ),
+                force=self.force,
+            )
         return self.writers[tabela]
-
-    def _novo_writer(self, tabela: str, *, force: bool) -> LakeWriter:
-        return LakeWriter(
-            self.lake_dir / SOURCE_ID / tabela,
-            DatasetDescriptor(
-                source_id=SOURCE_ID,
-                dataset_id=tabela,
-                alias=tabela,
-                partition_keys=PARTITION_KEYS,
-                partition_types=partition_types_for(PARTITION_KEYS),
-            ),
-            force=force,
-        )
-
-    @staticmethod
-    def _colunas_a_retirar(arquivo: Path, schema: dict[str, Any]) -> list[str]:
-        """Colunas de dados do arquivo do ano que nenhum membro que fica traz."""
-        try:
-            no_arquivo = pl.read_parquet_schema(arquivo)
-        except Exception:
-            return []
-        return [
-            c for c in no_arquivo if c not in schema and c not in (ORIGIN_COLUMN, "mes")
-        ]
 
     def arquivo(self, tabela: str, ano: int) -> Path:
         return partition_dir(self.writer(tabela).dataset_dir, {"ano": ano}) / (
@@ -417,6 +411,8 @@ class _Conversao:
 
     def _remover(self, tabela: str, ano: int) -> None:
         """Apaga o arquivo do ano de uma tabela, se for um arquivo de grupo."""
+        if not self.pode_apagar:
+            return
         arquivo = self.arquivo(tabela, ano)
         with dataset_lock(self.writer(tabela).dataset_dir):
             if not _entradas(arquivo):
@@ -544,11 +540,6 @@ class _Conversao:
                 res.skipped += len(contaveis)
                 return
             schema = self._schema(arquivo, membros, tabela, pilha, res)
-            if self._colunas_a_retirar(arquivo, schema):
-                # Coluna que so um membro removido trazia: o grupo nao tira uma
-                # coluna das linhas mantidas, entao o arquivo do ano e regravado
-                # inteiro (todo membro decodificado de novo).
-                writer = self.writer(tabela, force=True)
             out = writer.write_group(tabela, grupo, schema=schema, **opcoes)
         except Exception as exc:
             res.errors.append(f"Erro em {SOURCE_ID}/{tabela} ano={ano}: {exc}")
@@ -641,17 +632,28 @@ class _Conversao:
         assert entrada is not None
         chave = entrada["chave"]
         contrato = entrada.get("contract_version")
+        proprias = entrada.get("null_counts")
+        causa = None
         if contrato != CONTRACT_VERSION or sorted(entrada.get("outputs") or []) != (
             sorted(saidas)
         ):
+            causa = (
+                "foram gravadas com outro contrato de conversao (versao "
+                f"{contrato}, a atual e {CONTRACT_VERSION}) ou sem a declaracao de "
+                "saidas"
+            )
+        elif not isinstance(proprias, dict):
+            causa = (
+                "foram gravadas sem os nulos por membro, e sem eles nao se sabe "
+                "quais colunas eram do membro"
+            )
+        if causa is not None:
 
             def impossivel() -> pl.DataFrame:
                 raise ValueError(
                     f"{z.path.name} nao pode ser lido ({z.falha}) e as linhas dele "
-                    f"no arquivo do ano foram gravadas com outro contrato de "
-                    f"conversao (versao {contrato}, a atual e {CONTRACT_VERSION}) "
-                    "ou sem a declaracao de saidas: nao da para preserva-las; "
-                    "corrija o ZIP"
+                    f"no arquivo do ano {causa}: nao da para preserva-las com "
+                    "exatidao; corrija o ZIP e reconverta"
                 )
 
             dados = impossivel
@@ -664,10 +666,7 @@ class _Conversao:
                 )
                 # So as colunas que o membro tinha (as demais do arquivo sao nulas
                 # por preenchimento): os nulos por membro saem corretos.
-                proprias = (entrada.get("null_counts") or {}).keys()
-                if proprias:
-                    df = df.select([c for c in df.columns if c in proprias])
-                return df
+                return df.select([c for c in df.columns if c in proprias])
 
             dados = antigas
         return GroupMember(
@@ -720,8 +719,10 @@ class _Conversao:
         proprias = {ORIGIN_COLUMN, "mes"}
         for m in membros:
             if m.tipo in ("atual", "preservado") and existente is not None:
-                # Colunas do membro mantido: as chaves dos nulos da entrada dele;
-                # tipos: os do arquivo. So elas contam, nao as de membro removido.
+                # Membro mantido: so as colunas dele (chaves de ``null_counts``), com
+                # os tipos do arquivo. Elas entram no esquema para o grupo preencher
+                # com nulo o membro novo que nao as traz; a coluna de membro removido
+                # nao entra, e o grupo a tira das linhas mantidas.
                 contagem = (m.entrada or {}).get("null_counts")
                 nomes = contagem if isinstance(contagem, dict) else existente
                 for nome in nomes:
@@ -763,10 +764,12 @@ class SigtapLakeConverter:
             tabelas_dir = input_dir
 
         por_ano: dict[int, list[_Zip]] = {}
+        nome_ruim = False
         for zpath in _current_by_competencia(list(tabelas_dir.glob("*.zip"))):
             achado = _competencia_e_versao(zpath)
             if achado is None:
                 # Uma copia ou um nome improvisado duplicaria a competencia.
+                nome_ruim = True
                 res.errors.append(
                     f"{zpath.name}: nome fora do padrao "
                     "TabelaUnificada_AAAAMM[_vAAMMDDHHMM][@carimbo].zip; "
@@ -776,7 +779,7 @@ class SigtapLakeConverter:
             z = _Zip(zpath, *achado)
             por_ano.setdefault(int(z.comp[:4]), []).append(z)
         zip_comps = [(z.comp, z.path) for zs in por_ano.values() for z in zs]
-        conversao = _Conversao(lake_dir, force, zip_comps)
+        conversao = _Conversao(lake_dir, force, zip_comps, pode_apagar=not nome_ruim)
 
         for ano in sorted(por_ano):
             zips = sorted(por_ano[ano], key=lambda z: (z.comp, z.path.name))
