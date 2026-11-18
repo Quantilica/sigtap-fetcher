@@ -8,6 +8,7 @@ em dia não abre o ZIP.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import zipfile
@@ -18,18 +19,23 @@ from typing import Any
 
 try:
     import polars as pl
+    import pyarrow.parquet as pq
     from quantilica.analytics.fixed_width import FixedField, layout_from_datasus
     from quantilica.analytics.lake import (
+        META_MEMBERS,
         ORIGIN_COLUMN,
         ConvertResult,
         GroupMember,
         LakeWriter,
+        footer_from_metadata,
+        member_matches,
         output_id,
         sha256_file,
     )
     from quantilica.core.lake import (
         DatasetDescriptor,
         composite_file_key,
+        dataset_lock,
         partition_dir,
         partition_types_for,
         select_current,
@@ -237,7 +243,7 @@ class _Zip:
         self.key = composite_file_key(path)
         self.falha: str | None = None  # erro ao abrir, se houve
         self.tabelas: dict[str, str] = {}  # tabela -> nome do membro no ZIP
-        self.layouts: dict[str, list[FixedField]] = {}
+        self._layouts: dict[str, list[FixedField]] | None = None
         self._zf: zipfile.ZipFile | None = None
         self._sha256: str | None = None
 
@@ -247,15 +253,25 @@ class _Zip:
             self._sha256 = sha256_file(self.path)
         return self._sha256
 
+    @property
+    def layouts(self) -> dict[str, list[FixedField]]:
+        """Layouts do ZIP; so os le (descomprime) quando alguem os pede."""
+        assert self._zf is not None
+        if self._layouts is None:
+            self._layouts = _extract_layouts_from_zip(self._zf)
+        return self._layouts
+
     def abrir(self, pilha: ExitStack) -> bool:
-        """Abre o ZIP uma vez (fechado com ``pilha``); ``False`` se nao abre."""
+        """Le o diretorio central uma vez (fechado com ``pilha``).
+
+        So a lista de membros: nada e descomprimido. ``False`` se nao abre.
+        """
         if self._zf is not None:
             return True
         if self.falha is not None:
             return False
         try:
             zf = pilha.enter_context(zipfile.ZipFile(self.path, "r"))
-            self.layouts = _extract_layouts_from_zip(zf)
             self.tabelas = {
                 Path(n).stem.lower(): n for n in zf.namelist() if _is_table_member(n)
             }
@@ -276,11 +292,32 @@ class _Zip:
 
 @dataclass
 class _Membro:
-    """Uma tabela de um ZIP, membro do grupo (tabela, ano)."""
+    """Uma tabela de um ZIP, membro do grupo (tabela, ano).
+
+    ``tipo``: ``dados`` (a gravar), ``atual`` (ja no arquivo do ano com o sha do ZIP;
+    o ZIP nao e aberto), ``vazio`` (a tabela falta no ZIP ou nao tem linhas: membro de
+    0 linhas, para o ZIP ficar em dia) e ``preservado`` (o ZIP falhou: as linhas que o
+    arquivo ja tem dele ficam como estao).
+    """
 
     zip: _Zip
-    # None para o membro em dia (o ZIP nao foi aberto para resolver o layout).
+    tipo: str
     layout: list[FixedField] | None = None
+    entrada: dict[str, Any] | None = None  # entrada do arquivo do ano, se ja houver
+
+    @property
+    def linhas_no_arquivo(self) -> int:
+        return int((self.entrada or {}).get("rows", 0))
+
+
+def _entradas(arquivo: Path) -> dict[str, dict[str, Any]]:
+    """``quantilica.members`` do arquivo do ano; vazio sem arquivo ou sem rodape."""
+    try:
+        meta = footer_from_metadata(pq.ParquetFile(arquivo).metadata)
+        membros = json.loads(meta[META_MEMBERS])
+    except Exception:
+        return {}
+    return {k: v for k, v in membros.items() if isinstance(v, dict)}
 
 
 class _Conversao:
@@ -310,6 +347,11 @@ class _Conversao:
             )
         return self.writers[tabela]
 
+    def arquivo(self, tabela: str, ano: int) -> Path:
+        return partition_dir(self.writer(tabela).dataset_dir, {"ano": ano}) / (
+            f"{tabela}.parquet"
+        )
+
     def ano(
         self,
         ano: int,
@@ -320,14 +362,59 @@ class _Conversao:
     ) -> None:
         """Converte as tabelas dos ZIPs de um ano, um arquivo por tabela."""
         if alvos is None:
-            # Sem alvo nao se sabe quais tabelas ha: todo ZIP e aberto.
+            # Sem alvo nao se sabe quais tabelas ha: le-se o diretorio central de
+            # todo ZIP (so a lista de membros). Tambem entram as tabelas que ja
+            # tem arquivo do ano, para o que saiu de todos os ZIPs sair do arquivo.
             for z in zips:
                 self._abrir(z, pilha, res)
-            tabelas = sorted({t for z in zips for t in z.tabelas})
+            tabelas = {t for z in zips for t in z.tabelas}
+            tabelas |= {
+                t for t in self._tabelas_do_lake() if self.arquivo(t, ano).is_file()
+            }
         else:
-            tabelas = sorted(alvos)
-        for tabela in tabelas:
+            tabelas = alvos
+        for tabela in sorted(tabelas):
             self._grupo(tabela, ano, zips, pilha, res)
+
+    def _tabelas_do_lake(self) -> list[str]:
+        base = self.lake_dir / SOURCE_ID
+        return (
+            sorted(p.name for p in base.iterdir() if p.is_dir())
+            if base.is_dir()
+            else []
+        )
+
+    def sem_origem(self, anos_do_bruto: set[int], alvos: set[str] | None) -> None:
+        """Apaga o arquivo de um ano em que nenhum ZIP do bruto resta.
+
+        Sem ZIP nenhum no bruto (montagem fora do ar, pasta vazia) nada e apagado.
+        """
+        if not anos_do_bruto:
+            return
+        for tabela in sorted(alvos) if alvos is not None else self._tabelas_do_lake():
+            base = self.writer(tabela).dataset_dir
+            for pasta in sorted(base.glob("ano=*")) if base.is_dir() else []:
+                try:
+                    ano = int(pasta.name.split("=", 1)[1])
+                except ValueError:
+                    continue
+                if ano not in anos_do_bruto:
+                    self._remover(tabela, ano)
+
+    def _remover(self, tabela: str, ano: int) -> None:
+        """Apaga o arquivo do ano de uma tabela, se for um arquivo de grupo."""
+        arquivo = self.arquivo(tabela, ano)
+        with dataset_lock(self.writer(tabela).dataset_dir):
+            if not _entradas(arquivo):
+                return
+            arquivo.unlink()
+            logger.info(
+                "sigtap: %s ano=%s sem ZIP de origem; arquivo removido", tabela, ano
+            )
+            try:
+                arquivo.parent.rmdir()  # so se esvaziou
+            except OSError:
+                pass
 
     def _abrir(self, z: _Zip, pilha: ExitStack, res: ConvertResult) -> bool:
         ja_falhou = z.falha is not None
@@ -348,64 +435,87 @@ class _Conversao:
         writer = self.writer(tabela)
         particoes = {"ano": ano}
         saidas = [output_id(particoes, tabela)]
+        arquivo = self.arquivo(tabela, ano)
+        entradas = _entradas(arquivo)
         membros: list[_Membro] = []
-        erro_de_membro = False
+        falhou = False
+
+        def preservar(z: _Zip) -> None:
+            # O ZIP nao pode ser lido: as linhas que o arquivo ja tem dele (a
+            # entrada de mesma chave ou, se o ZIP foi regerado com outra versao, a
+            # da mesma competencia) ficam como estao.
+            for chave, entrada in entradas.items():
+                if chave == z.key or entrada.get("mes") == z.comp[4:6]:
+                    membros.append(
+                        _Membro(z, "preservado", entrada=dict(entrada, chave=chave))
+                    )
+                    return
+
         for z in zips:
             # O ZIP em dia nao e aberto: o arquivo do ano ja o registra como
-            # membro. Tabela sem membro (ausente do ZIP ou nao convertida) nao
-            # esta em dia e o ZIP e aberto.
-            if writer.is_current_member(
-                z.path,
-                group_key=tabela,
-                partitions=particoes,
-                member_key=z.key,
+            # membro (inclusive o de 0 linhas, de tabela ausente ou vazia).
+            if not writer.force and member_matches(
+                arquivo,
+                tabela,
+                z.key,
+                z.sha256,
+                layout_version=writer.descriptor.layout_version,
                 contract_version=CONTRACT_VERSION,
                 origin_outputs=saidas,
             ):
-                membros.append(_Membro(z))
+                membros.append(_Membro(z, "atual", entrada=entradas.get(z.key)))
                 continue
-            if not self._abrir(z, pilha, res) or tabela not in z.tabelas:
-                continue
-            # Cada tabela tem o seu `<tabela>_layout.txt`. Sem ele a tabela nao e
-            # convertida (nunca emprestar o layout de outra).
-            layout, erro = self._layout(z, tabela, conferir=True)
-            if erro:
-                res.errors.append(erro)
-                erro_de_membro = True
-            elif z.tamanho(tabela) == 0:
-                logger.info(
-                    "sigtap: %s %s vazia no ZIP; nada a converter", z.comp, tabela
-                )
+            if not self._abrir(z, pilha, res):
+                falhou = True
+                preservar(z)
+            elif tabela not in z.tabelas or z.tamanho(tabela) == 0:
+                membros.append(_Membro(z, "vazio"))
             else:
-                membros.append(_Membro(z, layout))
-        if not membros:
+                # Cada tabela tem o seu `<tabela>_layout.txt`. Sem ele a tabela nao
+                # e convertida (nunca emprestar o layout de outra).
+                layout, erro = self._layout(z, tabela, conferir=True)
+                if erro:
+                    res.errors.append(erro)
+                    falhou = True
+                    preservar(z)
+                else:
+                    membros.append(_Membro(z, "dados", layout))
+
+        tem_dados = any(m.tipo == "dados" or m.linhas_no_arquivo > 0 for m in membros)
+        if not tem_dados:
+            # Nenhum ZIP do ano traz linhas da tabela: sem arquivo. Se algum ZIP
+            # falhou, nao se sabe o que ele trazia e o arquivo fica como esta.
+            if not falhou and arquivo.is_file():
+                self._remover(tabela, ano)
             return
-        # Membro que nao pode ser lido nao deve apagar as linhas que o arquivo do
-        # ano ja tem dele: sem prune o que nao esta na lista fica como esta.
-        prune = not (erro_de_membro or any(z.falha is not None for z in zips))
+
         grupo = [self._membro(m, tabela, saidas, pilha) for m in membros]
-        arquivo = partition_dir(writer.dataset_dir, particoes) / f"{tabela}.parquet"
+        # So os membros com linhas entram na conta; os de 0 linhas e os preservados
+        # (o ZIP falhou) nao sao conversao nem pulo.
+        contaveis = {
+            m.zip.key
+            for m in membros
+            if m.tipo == "dados" or (m.tipo == "atual" and m.linhas_no_arquivo > 0)
+        }
         opcoes: dict[str, Any] = {
             "partitions": particoes,
             "contract_version": CONTRACT_VERSION,
-            "prune": prune,
         }
         try:
             if writer.is_current_group(tabela, grupo, **opcoes):
-                res.skipped += len(grupo)
+                res.skipped += len(contaveis)
                 return
             out = writer.write_group(
                 tabela,
                 grupo,
-                sort_by=["mes"],
                 schema=self._schema(arquivo, membros, tabela, pilha, res),
                 **opcoes,
             )
         except Exception as exc:
             res.errors.append(f"Erro em {SOURCE_ID}/{tabela} ano={ano}: {exc}")
             return
-        res.converted += len(out.written)
-        res.skipped += len(out.kept)
+        res.converted += len(contaveis & set(out.written))
+        res.skipped += len(contaveis & set(out.kept))
 
     def _layout(
         self, z: _Zip, tabela: str, *, conferir: bool
@@ -448,8 +558,29 @@ class _Conversao:
         self, m: _Membro, tabela: str, saidas: list[str], pilha: ExitStack
     ) -> GroupMember:
         z = m.zip
+        if m.tipo == "preservado":
+            assert m.entrada is not None
+
+            def intocavel() -> pl.DataFrame:
+                raise OSError(
+                    f"{z.path.name}: ilegivel e as linhas dele no arquivo do ano "
+                    "nao estao em dia; nada a preservar"
+                )
+
+            # Mesmo sha, colunas e saidas da entrada: o grupo a considera em dia e
+            # copia as linhas dela, sem chamar ``data``.
+            return GroupMember(
+                src=z.path,
+                data=intocavel,
+                key=m.entrada["chave"],
+                columns={"mes": str(m.entrada.get("mes", z.comp[4:6]))},
+                sha256=m.entrada.get("origin_sha256"),
+                origin_outputs=saidas,
+            )
 
         def dados() -> pl.DataFrame:
+            if m.tipo == "vazio":
+                return pl.DataFrame(schema=_frame_schema([]))
             # So chamada para o membro a gravar; o ZIP ja esta aberto, salvo se o
             # arquivo do ano nao confirmou um membro dado como em dia.
             if not z.abrir(pilha):
@@ -483,22 +614,37 @@ class _Conversao:
         O layout de uma tabela ganha colunas no meio do ano (``tb_cid`` em 2011,
         por exemplo) e o grupo tem um esquema so: o membro que nao traz a coluna a
         recebe nula. As colunas dos membros em dia saem do rodape do arquivo do
-        ano, sem abrir o ZIP deles.
+        ano, sem abrir o ZIP deles. Coluna com tipo diferente entre dois layouts do
+        ano e erro (promover calado, de inteiro a texto, perderia os zeros a
+        esquerda): o grupo falha e os demais seguem.
         """
         schema: dict[str, Any] = {}
+        origem: dict[str, str] = {}
+
+        def somar(nome: str, tipo: Any, de: str) -> None:
+            if nome in schema and schema[nome] != tipo:
+                raise ValueError(
+                    f"coluna {nome}: tipo {schema[nome]} em {origem[nome]} e {tipo} "
+                    f"em {de}; o tipo de uma coluna nao pode mudar dentro do ano"
+                )
+            schema[nome] = tipo
+            origem.setdefault(nome, de)
+
         try:
-            existente = pl.read_parquet_schema(arquivo)
+            # Com force todo membro e regravado: o tipo do arquivo antigo nao conta.
+            existente = None if self.force else pl.read_parquet_schema(arquivo)
         except Exception:
             existente = None  # sem arquivo (ou ilegivel): nenhum membro esta nele
         for nome, tipo in (existente or {}).items():
             if nome not in (ORIGIN_COLUMN, "mes"):
-                schema[nome] = tipo
+                somar(nome, tipo, "o arquivo do ano")
         for m in membros:
-            if m.layout is None and existente is None:
+            if m.tipo == "atual" and m.layout is None and existente is None:
                 if self._abrir(m.zip, pilha, res):
                     m.layout, _ = self._layout(m.zip, tabela, conferir=False)
-            for nome, tipo in _frame_schema(m.layout or []).items():
-                schema[nome] = tipo
+            if m.layout is not None:
+                for nome, tipo in _frame_schema(m.layout).items():
+                    somar(nome, tipo, m.zip.path.name)
         return schema
 
 
@@ -539,6 +685,7 @@ class SigtapLakeConverter:
             # Os ZIPs do ano ficam abertos enquanto as tabelas do ano sao gravadas.
             with ExitStack() as pilha:
                 conversao.ano(ano, zips, alvos, pilha, res)
+        conversao.sem_origem(set(por_ano), alvos)
         return res
 
 

@@ -10,6 +10,8 @@ from pathlib import Path
 import pytest
 import quantilica.core.manifests as manifests_mod
 
+_ZipFile = zipfile.ZipFile  # antes de qualquer espiao trocar o nome
+
 
 @pytest.fixture
 def bruto_lido(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -64,3 +66,21 @@ def aberturas(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr(zipfile, "ZipFile", espia)
     return abertos
+
+
+@pytest.fixture
+def decodificados(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Registra cada membro lido (descomprimido) de um ZIP: ``<zip>:<membro>``.
+
+    Abrir o ZIP so para ler o diretorio central (``namelist``) nao conta aqui;
+    conta em ``aberturas``.
+    """
+    lidos: list[str] = []
+    original = _ZipFile.read
+
+    def espia(self, name, pwd=None):  # noqa: ANN001, ANN202
+        lidos.append(f"{Path(str(self.filename)).name}:{name}")
+        return original(self, name, pwd)
+
+    monkeypatch.setattr(_ZipFile, "read", espia)
+    return lidos
