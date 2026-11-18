@@ -87,8 +87,9 @@ def test_ano_e_mes_continuam_visiveis_na_consulta(tmp_path: Path) -> None:
     assert df.filter(pl.col("mes") == "12").height == 1
 
 
-def test_lake_profile_devolve_periodo_anual_das_tabelas(tmp_path: Path) -> None:
-    """A partição é o ano: o perfil lê o período da pasta e o devolve por ano."""
+def test_lake_profile_devolve_periodo_mensal_das_tabelas(tmp_path: Path) -> None:
+    """A partição é o ano, mas o perfil sai mensal: os meses vêm da coluna de membro
+    ``mes`` e as linhas e os nulos, exatos, dos nulos gravados por membro."""
     pytest.importorskip("pyarrow")
     from quantilica.core.lake_profile import profile_from_lake
 
@@ -98,8 +99,14 @@ def test_lake_profile_devolve_periodo_anual_das_tabelas(tmp_path: Path) -> None:
     perfil = profile_from_lake(tmp_path / "lake", "sigtap", "tb_grupo")
 
     doc = perfil.perfil
-    assert doc["granularidade"] == "anual"
-    assert doc["periodos"] == ["2008", "2016", "2026"]
-    assert doc["linhas"] == [2, 2, 11]
+    assert doc["granularidade"] == "mensal"
+    assert doc["periodos"] == [
+        "2008-01",
+        "2016-05",
+        "2026-10",
+        "2026-11",
+        "2026-12",
+    ]
+    assert doc["linhas"] == [2, 2, 2, 8, 1]
     assert "versao" in doc["colunas"]
     assert "mes" not in doc["colunas"]

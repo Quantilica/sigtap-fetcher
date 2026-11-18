@@ -330,20 +330,36 @@ class _Conversao:
         self.writers: dict[str, LakeWriter] = {}
         self.emprestados: dict[tuple[str, str], list[FixedField] | None] = {}
 
-    def writer(self, tabela: str) -> LakeWriter:
+    def writer(self, tabela: str, *, force: bool = False) -> LakeWriter:
+        if force and not self.force:
+            return self._novo_writer(tabela, force=True)
         if tabela not in self.writers:
-            self.writers[tabela] = LakeWriter(
-                self.lake_dir / SOURCE_ID / tabela,
-                DatasetDescriptor(
-                    source_id=SOURCE_ID,
-                    dataset_id=tabela,
-                    alias=tabela,
-                    partition_keys=PARTITION_KEYS,
-                    partition_types=partition_types_for(PARTITION_KEYS),
-                ),
-                force=self.force,
-            )
+            self.writers[tabela] = self._novo_writer(tabela, force=self.force)
         return self.writers[tabela]
+
+    def _novo_writer(self, tabela: str, *, force: bool) -> LakeWriter:
+        return LakeWriter(
+            self.lake_dir / SOURCE_ID / tabela,
+            DatasetDescriptor(
+                source_id=SOURCE_ID,
+                dataset_id=tabela,
+                alias=tabela,
+                partition_keys=PARTITION_KEYS,
+                partition_types=partition_types_for(PARTITION_KEYS),
+            ),
+            force=force,
+        )
+
+    @staticmethod
+    def _colunas_a_retirar(arquivo: Path, schema: dict[str, Any]) -> list[str]:
+        """Colunas de dados do arquivo do ano que nenhum membro que fica traz."""
+        try:
+            no_arquivo = pl.read_parquet_schema(arquivo)
+        except Exception:
+            return []
+        return [
+            c for c in no_arquivo if c not in schema and c not in (ORIGIN_COLUMN, "mes")
+        ]
 
     def arquivo(self, tabela: str, ano: int) -> Path:
         return partition_dir(self.writer(tabela).dataset_dir, {"ano": ano}) / (
@@ -468,14 +484,20 @@ class _Conversao:
                 falhou = True
                 preservar(z)
                 continue
-            if not writer.force and member_matches(
-                arquivo,
-                tabela,
-                z.key,
-                z.sha256,
-                layout_version=writer.descriptor.layout_version,
-                contract_version=CONTRACT_VERSION,
-                origin_outputs=saidas,
+            # Entrada sem ``null_counts`` (arquivo de antes das estatisticas por
+            # membro) nao esta em dia: o grupo a regrava.
+            if (
+                not writer.force
+                and isinstance((entradas.get(z.key) or {}).get("null_counts"), dict)
+                and member_matches(
+                    arquivo,
+                    tabela,
+                    z.key,
+                    z.sha256,
+                    layout_version=writer.descriptor.layout_version,
+                    contract_version=CONTRACT_VERSION,
+                    origin_outputs=saidas,
+                )
             ):
                 membros.append(_Membro(z, "atual", entrada=entradas.get(z.key)))
                 continue
@@ -514,17 +536,20 @@ class _Conversao:
         opcoes: dict[str, Any] = {
             "partitions": particoes,
             "contract_version": CONTRACT_VERSION,
+            # Nulos exatos por membro: o perfil mensal do core os soma.
+            "member_stats": True,
         }
         try:
             if writer.is_current_group(tabela, grupo, **opcoes):
                 res.skipped += len(contaveis)
                 return
-            out = writer.write_group(
-                tabela,
-                grupo,
-                schema=self._schema(arquivo, membros, tabela, pilha, res),
-                **opcoes,
-            )
+            schema = self._schema(arquivo, membros, tabela, pilha, res)
+            if self._colunas_a_retirar(arquivo, schema):
+                # Coluna que so um membro removido trazia: o grupo nao tira uma
+                # coluna das linhas mantidas, entao o arquivo do ano e regravado
+                # inteiro (todo membro decodificado de novo).
+                writer = self.writer(tabela, force=True)
+            out = writer.write_group(tabela, grupo, schema=schema, **opcoes)
         except Exception as exc:
             res.errors.append(f"Erro em {SOURCE_ID}/{tabela} ano={ano}: {exc}")
             return
@@ -634,9 +659,15 @@ class _Conversao:
 
             def antigas() -> pl.DataFrame:
                 df = pl.read_parquet(arquivo, hive_partitioning=False)
-                return df.filter(pl.col(ORIGIN_COLUMN) == chave).drop(
+                df = df.filter(pl.col(ORIGIN_COLUMN) == chave).drop(
                     ORIGIN_COLUMN, "mes"
                 )
+                # So as colunas que o membro tinha (as demais do arquivo sao nulas
+                # por preenchimento): os nulos por membro saem corretos.
+                proprias = (entrada.get("null_counts") or {}).keys()
+                if proprias:
+                    df = df.select([c for c in df.columns if c in proprias])
+                return df
 
             dados = antigas
         return GroupMember(
@@ -686,13 +717,22 @@ class _Conversao:
             )
         except Exception:
             existente = None  # sem arquivo (ou ilegivel): nenhum membro esta nele
-        for nome, tipo in (existente or {}).items():
-            if nome not in (ORIGIN_COLUMN, "mes"):
-                somar(nome, tipo, "o arquivo do ano")
+        proprias = {ORIGIN_COLUMN, "mes"}
         for m in membros:
-            if m.tipo == "atual" and m.layout is None and existente is None:
+            if m.tipo in ("atual", "preservado") and existente is not None:
+                # Colunas do membro mantido: as chaves dos nulos da entrada dele;
+                # tipos: os do arquivo. So elas contam, nao as de membro removido.
+                contagem = (m.entrada or {}).get("null_counts")
+                nomes = contagem if isinstance(contagem, dict) else existente
+                for nome in nomes:
+                    if nome in existente and nome not in proprias:
+                        somar(nome, existente[nome], "o arquivo do ano")
+                continue
+            if m.tipo == "atual" and m.layout is None:
                 if self._abrir(m.zip, pilha, res):
                     m.layout, _ = self._layout(m.zip, tabela, conferir=False)
+            if m.tipo == "vazio":
+                m.layout = []
             if m.layout is not None:
                 for nome, tipo in _frame_schema(m.layout).items():
                     somar(nome, tipo, m.zip.path.name)

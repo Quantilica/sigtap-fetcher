@@ -661,3 +661,132 @@ def test_zip_com_nome_fora_do_padrao_e_erro_e_nao_duplica_o_mes(
     assert segunda.errors == primeira.errors  # determinístico
     df = pl.read_parquet(_arquivo(lake, "tb_x", 2026), hive_partitioning=False)
     assert df["mes"].to_list() == ["10"]  # um mes so, sem duplicar
+
+
+# --- nulos por membro (perfil mensal) e esquema so dos membros que ficam ---------
+
+
+def _entradas_do_ano(lake: Path, tabela: str, ano: int) -> dict:
+    meta = pq.ParquetFile(_arquivo(lake, tabela, ano)).metadata.metadata
+    return json.loads(meta[b"quantilica.members"])
+
+
+def test_cada_membro_registra_os_nulos_so_das_colunas_dele(tmp_path: Path) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01  \n02BB\n"), "tb_y": (_L2, "01AA\n")})
+    _zip_do_mes(raw, "202602", {"tb_x": (_L3, "03CCdd\n")})  # CO_C nasce em fevereiro
+    _zip_do_mes(raw, "202603", {"tb_x": (_L2, ""), "tb_y": (_L2, "")})  # sem linhas
+
+    converter.convert(raw, lake)
+
+    x = {m["mes"]: m for m in _entradas_do_ano(lake, "tb_x", 2026).values()}
+    assert x["01"]["null_counts"] == {
+        "competencia": 0,
+        "versao": 0,
+        "co_a": 0,
+        "co_b": 1,
+    }  # sem co_c: a coluna nao era dele
+    assert x["02"]["null_counts"]["co_c"] == 0
+    assert x["03"]["rows"] == 0
+    assert x["03"]["null_counts"] == {"competencia": 0, "versao": 0}
+    y = {m["mes"]: m for m in _entradas_do_ano(lake, "tb_y", 2026).values()}
+    assert y["02"]["rows"] == 0 and set(y["02"]["null_counts"]) == {
+        "competencia",
+        "versao",
+    }
+
+
+def test_arquivo_sem_nulos_por_membro_e_regravado_uma_vez(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, decodificados: list[str]
+) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01AA\n")})
+    _zip_do_mes(raw, "202602", {"tb_x": (_L2, "02BB\n")})
+    with monkeypatch.context() as m:
+        original_grupo, original_atual = (
+            LakeWriter.write_group,
+            LakeWriter.is_current_group,
+        )
+        m.setattr(
+            LakeWriter,
+            "write_group",
+            lambda self, *a, **k: original_grupo(
+                self, *a, **{**k, "member_stats": False}
+            ),
+        )
+        m.setattr(
+            LakeWriter,
+            "is_current_group",
+            lambda self, *a, **k: original_atual(
+                self, *a, **{**k, "member_stats": False}
+            ),
+        )
+        converter.convert(raw, lake)
+    assert all(
+        "null_counts" not in e for e in _entradas_do_ano(lake, "tb_x", 2026).values()
+    )
+
+    res = converter.convert(raw, lake)
+    assert (res.converted, res.skipped, res.errors) == (2, 0, [])
+    assert all(
+        "null_counts" in e for e in _entradas_do_ano(lake, "tb_x", 2026).values()
+    )
+
+    decodificados.clear()
+    res = converter.convert(raw, lake)
+    assert (res.converted, res.skipped) == (0, 2) and decodificados == []
+
+
+def test_force_preservando_membro_guarda_nulos_so_das_colunas_dele(
+    tmp_path: Path,
+) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    ruim = _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01AA\n")})
+    _zip_do_mes(raw, "202602", {"tb_x": (_L3, "02BBcc\n")})
+    converter.convert(raw, lake)
+
+    ruim.write_bytes(b"nao e zip")
+    _sidecars(raw)
+    converter.convert(raw, lake, force=True)
+    converter.convert(raw, lake)  # sem force: o membro preservado segue igual
+
+    entradas = {m["mes"]: m for m in _entradas_do_ano(lake, "tb_x", 2026).values()}
+    assert set(entradas["01"]["null_counts"]) == {
+        "competencia",
+        "versao",
+        "co_a",
+        "co_b",
+    }
+    assert "co_c" in entradas["02"]["null_counts"]
+
+
+def test_coluna_so_de_membro_removido_sai_do_esquema(tmp_path: Path) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01AA\n")})
+    saindo = _zip_do_mes(raw, "202602", {"tb_x": (_L3, "02BBcc\n")})
+    converter.convert(raw, lake)
+    assert "co_c" in pl.read_parquet_schema(_arquivo(lake, "tb_x", 2026))
+
+    saindo.unlink()
+    _zip_do_mes(raw, "202603", {"tb_x": (_L2, "03CC\n")})
+    res = converter.convert(raw, lake)
+
+    assert res.errors == []
+    assert "co_c" not in pl.read_parquet_schema(_arquivo(lake, "tb_x", 2026))
+    df = pl.read_parquet(_arquivo(lake, "tb_x", 2026), hive_partitioning=False)
+    assert sorted(df["mes"].to_list()) == ["01", "03"]
+
+
+def test_tipo_de_membro_removido_nao_conflita_com_o_novo(tmp_path: Path) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    numerico = "Coluna,Tamanho,Inicio,Fim,Tipo\nCO_A,2,1,2,NUMBER\n"
+    saindo = _zip_do_mes(raw, "202601", {"tb_x": (numerico, "01\n")})
+    converter.convert(raw, lake)
+    assert pl.read_parquet_schema(_arquivo(lake, "tb_x", 2026))["co_a"] == pl.Int64
+
+    saindo.unlink()
+    _zip_do_mes(raw, "202602", {"tb_x": (_L2, "AABB\n")})
+    res = converter.convert(raw, lake)
+
+    assert res.errors == []
+    assert pl.read_parquet_schema(_arquivo(lake, "tb_x", 2026))["co_a"] == pl.String
