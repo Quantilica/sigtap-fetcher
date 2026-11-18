@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import zipfile
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -225,12 +224,11 @@ def _frame_schema(layout: list[FixedField]) -> dict[str, Any]:
 
 
 def _competencia_e_versao(path: Path) -> tuple[str, int] | None:
-    """``(AAAAMM, versao)`` do nome do ZIP; ``None`` sem competencia reconhecivel."""
+    """``(AAAAMM, versao)`` do nome do ZIP; ``None`` fora de ``COMPETENCIA_RE``."""
     match = COMPETENCIA_RE.search(path.name)
-    if match:
-        return match.group("competencia"), int(match.group("version") or 0)
-    m_comp = re.search(r"\b(20\d{4})\b", path.stem)
-    return (m_comp.group(1), 0) if m_comp else None
+    if match is None:
+        return None
+    return match.group("competencia"), int(match.group("version") or 0)
 
 
 class _Zip:
@@ -424,6 +422,18 @@ class _Conversao:
             res.errors.append(f"Erro em {z.path.name}: {z.falha}")
         return False
 
+    def _ler_sha(self, z: _Zip, res: ConvertResult) -> bool:
+        """Calcula o sha do ZIP; erro de leitura e falha so dele (uma vez)."""
+        if z.falha is not None:
+            return False
+        try:
+            _ = z.sha256
+        except Exception as exc:
+            z.falha = str(exc)
+            res.errors.append(f"Erro em {z.path.name}: {z.falha}")
+            return False
+        return True
+
     def _grupo(
         self,
         tabela: str,
@@ -454,6 +464,10 @@ class _Conversao:
         for z in zips:
             # O ZIP em dia nao e aberto: o arquivo do ano ja o registra como
             # membro (inclusive o de 0 linhas, de tabela ausente ou vazia).
+            if not self._ler_sha(z, res):
+                falhou = True
+                preservar(z)
+                continue
             if not writer.force and member_matches(
                 arquivo,
                 tabela,
@@ -489,7 +503,7 @@ class _Conversao:
                 self._remover(tabela, ano)
             return
 
-        grupo = [self._membro(m, tabela, saidas, pilha) for m in membros]
+        grupo = [self._membro(m, tabela, saidas, pilha, arquivo) for m in membros]
         # So os membros com linhas entram na conta; os de 0 linhas e os preservados
         # (o ZIP falhou) nao sao conversao nem pulo.
         contaveis = {
@@ -555,28 +569,16 @@ class _Conversao:
         return layout, None
 
     def _membro(
-        self, m: _Membro, tabela: str, saidas: list[str], pilha: ExitStack
+        self,
+        m: _Membro,
+        tabela: str,
+        saidas: list[str],
+        pilha: ExitStack,
+        arquivo: Path,
     ) -> GroupMember:
         z = m.zip
         if m.tipo == "preservado":
-            assert m.entrada is not None
-
-            def intocavel() -> pl.DataFrame:
-                raise OSError(
-                    f"{z.path.name}: ilegivel e as linhas dele no arquivo do ano "
-                    "nao estao em dia; nada a preservar"
-                )
-
-            # Mesmo sha, colunas e saidas da entrada: o grupo a considera em dia e
-            # copia as linhas dela, sem chamar ``data``.
-            return GroupMember(
-                src=z.path,
-                data=intocavel,
-                key=m.entrada["chave"],
-                columns={"mes": str(m.entrada.get("mes", z.comp[4:6]))},
-                sha256=m.entrada.get("origin_sha256"),
-                origin_outputs=saidas,
-            )
+            return self._preservado(m, saidas, arquivo)
 
         def dados() -> pl.DataFrame:
             if m.tipo == "vazio":
@@ -598,6 +600,51 @@ class _Conversao:
             key=z.key,
             columns={"mes": z.comp[4:6]},
             sha256=z.sha256,
+            origin_outputs=saidas,
+        )
+
+    def _preservado(self, m: _Membro, saidas: list[str], arquivo: Path) -> GroupMember:
+        """Membro de um ZIP que falhou: fica o que o arquivo do ano ja tem dele.
+
+        Com o mesmo sha, colunas e saidas da entrada, o grupo o considera em dia e
+        copia as linhas, sem chamar ``data``. Com ``force`` o grupo chama ``data``,
+        que devolve as mesmas linhas, lidas do arquivo. So nao da para preservar a
+        entrada gravada com outro contrato (ou sem a declaracao de saidas): ai o
+        grupo falha, com a causa.
+        """
+        z, entrada = m.zip, m.entrada
+        assert entrada is not None
+        chave = entrada["chave"]
+        contrato = entrada.get("contract_version")
+        if contrato != CONTRACT_VERSION or sorted(entrada.get("outputs") or []) != (
+            sorted(saidas)
+        ):
+
+            def impossivel() -> pl.DataFrame:
+                raise ValueError(
+                    f"{z.path.name} nao pode ser lido ({z.falha}) e as linhas dele "
+                    f"no arquivo do ano foram gravadas com outro contrato de "
+                    f"conversao (versao {contrato}, a atual e {CONTRACT_VERSION}) "
+                    "ou sem a declaracao de saidas: nao da para preserva-las; "
+                    "corrija o ZIP"
+                )
+
+            dados = impossivel
+        else:
+
+            def antigas() -> pl.DataFrame:
+                df = pl.read_parquet(arquivo, hive_partitioning=False)
+                return df.filter(pl.col(ORIGIN_COLUMN) == chave).drop(
+                    ORIGIN_COLUMN, "mes"
+                )
+
+            dados = antigas
+        return GroupMember(
+            src=z.path,
+            data=dados,
+            key=chave,
+            columns={"mes": str(entrada.get("mes", z.comp[4:6]))},
+            sha256=entrada.get("origin_sha256"),
             origin_outputs=saidas,
         )
 
@@ -631,8 +678,12 @@ class _Conversao:
             origem.setdefault(nome, de)
 
         try:
-            # Com force todo membro e regravado: o tipo do arquivo antigo nao conta.
-            existente = None if self.force else pl.read_parquet_schema(arquivo)
+            # Com force todo membro e regravado e o tipo do arquivo antigo nao conta,
+            # salvo se um membro preservado volta a ele pelas linhas do arquivo.
+            preserva = any(m.tipo == "preservado" for m in membros)
+            existente = (
+                None if self.force and not preserva else pl.read_parquet_schema(arquivo)
+            )
         except Exception:
             existente = None  # sem arquivo (ou ilegivel): nenhum membro esta nele
         for nome, tipo in (existente or {}).items():
@@ -674,9 +725,16 @@ class SigtapLakeConverter:
         por_ano: dict[int, list[_Zip]] = {}
         for zpath in _current_by_competencia(list(tabelas_dir.glob("*.zip"))):
             achado = _competencia_e_versao(zpath)
-            if achado:
-                z = _Zip(zpath, *achado)
-                por_ano.setdefault(int(z.comp[:4]), []).append(z)
+            if achado is None:
+                # Uma copia ou um nome improvisado duplicaria a competencia.
+                res.errors.append(
+                    f"{zpath.name}: nome fora do padrao "
+                    "TabelaUnificada_AAAAMM[_vAAMMDDHHMM][@carimbo].zip; "
+                    "nao convertido"
+                )
+                continue
+            z = _Zip(zpath, *achado)
+            por_ano.setdefault(int(z.comp[:4]), []).append(z)
         zip_comps = [(z.comp, z.path) for zs in por_ano.values() for z in zs]
         conversao = _Conversao(lake_dir, force, zip_comps)
 

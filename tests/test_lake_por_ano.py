@@ -567,3 +567,97 @@ def test_membros_vao_ao_grupo_em_ordem_de_competencia_sem_sort_by(
     ]
     assert not chamada.get("sort_by")
     assert chamada.get("prune", True) is True
+
+
+# --- ZIP que nao se le: falha so dele ---------------------------------------------
+
+
+def test_erro_ao_calcular_o_sha_de_um_zip_nao_aborta_o_convert(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sigtap_fetcher.lake as lake_mod
+
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01AA\n"), "tb_y": (_L2, "01AA\n")})
+    _zip_do_mes(raw, "202602", {"tb_x": (_L2, "02BB\n"), "tb_y": (_L2, "02BB\n")})
+    _zip_do_mes(raw, "202512", {"tb_x": (_L2, "09ZZ\n"), "tb_y": (_L2, "09ZZ\n")})
+    converter.convert(raw, lake)
+
+    original = lake_mod.sha256_file
+
+    def sha(path):  # noqa: ANN001, ANN202
+        if "202602" in Path(path).name:
+            raise OSError("Could not read file for checksum")
+        return original(path)
+
+    monkeypatch.setattr(lake_mod, "sha256_file", sha)
+    res = converter.convert(raw, lake)  # nao levanta
+
+    assert len(res.errors) == 1 and "202602" in res.errors[0]  # uma vez por ZIP
+    for tabela in ("tb_x", "tb_y"):
+        df = pl.read_parquet(_arquivo(lake, tabela, 2026), hive_partitioning=False)
+        assert sorted(df["mes"].to_list()) == ["01", "02"]  # linhas preservadas
+        assert _arquivo(lake, tabela, 2025).is_file()  # outros anos seguem
+
+
+# --- force e membro preservado -----------------------------------------------------
+
+
+def test_force_com_zip_ilegivel_preserva_as_linhas_dele(tmp_path: Path) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    ruim = _zip_do_mes(raw, "202601", {"tb_x": (_L3, "01AAbbcc\n")})
+    _zip_do_mes(raw, "202602", {"tb_x": (_L2, "02BB\n")})
+    converter.convert(raw, lake)
+
+    ruim.write_bytes(b"nao e zip")
+    _sidecars(raw)
+    res = converter.convert(raw, lake, force=True)
+
+    assert len(res.errors) == 1 and "202601" in res.errors[0]
+    df = pl.read_parquet(_arquivo(lake, "tb_x", 2026), hive_partitioning=False)
+    por_mes = {m: g for (m,), g in df.group_by("mes")}
+    assert por_mes["01"]["co_c"].to_list() == ["bb"]  # as linhas antigas, intactas
+    assert por_mes["02"]["co_a"].to_list() == ["02"]
+
+
+def test_preservar_com_contrato_antigo_falha_dizendo_a_causa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sigtap_fetcher.lake as lake_mod
+
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    ruim = _zip_do_mes(raw, "202601", {"tb_x": (_L2, "01AA\n")})
+    _zip_do_mes(raw, "202602", {"tb_x": (_L2, "02BB\n")})
+    with monkeypatch.context() as m:
+        m.setattr(lake_mod, "CONTRACT_VERSION", CONTRACT_VERSION - 1)
+        converter.convert(raw, lake)
+
+    ruim.write_bytes(b"nao e zip")
+    _sidecars(raw)
+    res = converter.convert(raw, lake)
+
+    grupo = [e for e in res.errors if "tb_x" in e and "ano=2026" in e]
+    assert len(grupo) == 1
+    assert "contrato" in grupo[0] and "202601" in grupo[0]
+    assert "em dia" not in grupo[0]
+
+
+# --- nome de ZIP fora do padrao ---------------------------------------------------
+
+
+def test_zip_com_nome_fora_do_padrao_e_erro_e_nao_duplica_o_mes(
+    tmp_path: Path,
+) -> None:
+    raw, lake = tmp_path / "raw", tmp_path / "lake"
+    original = _zip_do_mes(raw, "202610", {"tb_x": (_L2, "10AA\n")})
+    copia = original.with_name("copia 202610.zip")
+    shutil.copy2(original, copia)
+    _sidecars(raw)
+
+    primeira = converter.convert(raw, lake)
+    segunda = converter.convert(raw, lake)
+
+    assert len(primeira.errors) == 1 and "copia 202610.zip" in primeira.errors[0]
+    assert segunda.errors == primeira.errors  # determinístico
+    df = pl.read_parquet(_arquivo(lake, "tb_x", 2026), hive_partitioning=False)
+    assert df["mes"].to_list() == ["10"]  # um mes so, sem duplicar
