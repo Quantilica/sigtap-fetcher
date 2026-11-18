@@ -658,6 +658,7 @@ class _Conversao:
 
             dados = impossivel
         else:
+            assert isinstance(proprias, dict)
 
             def antigas() -> pl.DataFrame:
                 df = pl.read_parquet(arquivo, hive_partitioning=False)
