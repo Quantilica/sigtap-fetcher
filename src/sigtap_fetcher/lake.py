@@ -304,6 +304,28 @@ class SigtapLakeConverter:
                 comp = match.group("competencia")
                 ver = int(match.group("version") or 0)
 
+            # Com o alvo conhecido, o ZIP em dia nao precisa ser aberto: abri-lo e
+            # lento no bruto em disco de rede e o build roda uma tarefa por tabela.
+            # O Parquet registra este ZIP como origem, logo a tabela esta nele; tabela
+            # sem Parquet (ausente do ZIP ou nao convertida) nao esta em dia e o ZIP
+            # e aberto como antes.
+            if target_datasets and not force:
+                partitions_z = competencia_partitions(comp)
+                file_key_z = composite_file_key(zpath)
+                em_dia = [
+                    t
+                    for t in sorted(target_datasets)
+                    if get_writer(t).is_current(
+                        zpath, partitions=partitions_z, file_key_name=file_key_z
+                    )
+                ]
+                if len(em_dia) == len(target_datasets):
+                    for t in em_dia:
+                        res.skipped += 1
+                        _remove_legacy_partition(get_writer(t).dataset_dir, t, comp)
+                    tabelas_do_zip[comp] = set(em_dia)
+                    continue
+
             try:
                 with zipfile.ZipFile(zpath, "r") as zf:
                     layouts = _extract_layouts_from_zip(zf)

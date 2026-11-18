@@ -7,6 +7,9 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Corrigido
+- Conversão do lake: com `datasets=[...]` e sem `force`, o ZIP cujas tabelas-alvo já estão em dia deixa de ser aberto (nem os arquivos de layout nem a lista de membros são lidos). Antes, cada tarefa por tabela abria todos os ZIPs antes de verificar o Parquet, o que em disco lento levava minutos por tabela sem nada a converter. As contagens de `converted` e `skipped` não mudam; o ZIP em que a tabela falta, o ZIP novo, `force` e a conversão sem `datasets` seguem abrindo o ZIP como antes.
+
 ### Alterado
 - CI e infraestrutura alinhados ao template (fetcher-template v0.2.1).
 
