@@ -1,26 +1,36 @@
-"""Universal Hive Parquet Lake converter for sigtap-fetcher."""
+"""Conversor do lake do SIGTAP: um Parquet por tabela e por ano.
+
+Cada tabela do ZIP mensal vira o membro de um grupo do ano
+(``sigtap/<tabela>/ano=AAAA/<tabela>.parquet``), com a competência ``mes`` (texto
+``MM``) como coluna do membro. Mês novo reescreve só o arquivo do ano; competência
+em dia não abre o ZIP.
+"""
 
 from __future__ import annotations
 
 import logging
 import re
 import zipfile
+from contextlib import ExitStack
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 try:
     import polars as pl
-    import pyarrow.parquet as pq
     from quantilica.analytics.fixed_width import FixedField, layout_from_datasus
     from quantilica.analytics.lake import (
-        META_MEMBERS,
+        ORIGIN_COLUMN,
         ConvertResult,
+        GroupMember,
         LakeWriter,
-        footer_from_metadata,
+        output_id,
+        sha256_file,
     )
     from quantilica.core.lake import (
         DatasetDescriptor,
         composite_file_key,
+        partition_dir,
         partition_types_for,
         select_current,
     )
@@ -41,48 +51,10 @@ from sigtap_fetcher.constants import (
 logger = logging.getLogger(__name__)
 
 SOURCE_ID = "sigtap"
-PARTITION_KEYS = ["ano", "mes"]
-
-
-def competencia_partitions(comp: str) -> dict[str, Any]:
-    """Partição ``ano=AAAA/mes=MM`` de uma competência ``AAAAMM``."""
-    return {"ano": int(comp[:4]), "mes": comp[4:6]}
-
-
-def _remove_legacy_partition(dataset_dir: Path, dataset_id: str, comp: str) -> int:
-    """Apaga a pasta ``competencia=AAAAMM`` do layout anterior, já substituída.
-
-    Antes da partição por ano e mês, cada competência ficava em
-    ``competencia=AAAAMM/``. A competência agora publicada em ``ano=/mes=`` traz
-    todas as linhas da pasta antiga (a versão vigente do ZIP da competência), então
-    os Parquets dela, escritos por este dataset, são removidos. Parquet de outro
-    dataset, agrupado ou ilegível fica onde está, e a pasta só some se esvaziar.
-    Devolve quantos arquivos apagou.
-    """
-    legacy = dataset_dir / f"competencia={comp}"
-    if not legacy.is_dir():
-        return 0
-    removed = 0
-    for path in sorted(legacy.glob("*.parquet")):
-        try:
-            meta = footer_from_metadata(pq.ParquetFile(path).metadata)
-        except Exception:
-            logger.warning("sigtap: %s ilegivel; mantido", path)
-            continue
-        if (
-            meta.get("quantilica.source_id") != SOURCE_ID
-            or meta.get("quantilica.dataset_id") != dataset_id
-            or META_MEMBERS in meta
-        ):
-            logger.warning("sigtap: %s nao e deste dataset; mantido", path)
-            continue
-        path.unlink()
-        removed += 1
-    try:
-        legacy.rmdir()  # so se esvaziou
-    except OSError:
-        pass
-    return removed
+PARTITION_KEYS = ["ano"]
+# Sobe quando a decodificação de uma tabela muda: os membros gravados com outro
+# valor são reconvertidos.
+CONTRACT_VERSION = 1
 
 
 def _extract_layouts_from_zip(zf: zipfile.ZipFile) -> dict[str, list[FixedField]]:
@@ -229,17 +201,309 @@ def parse_fixed_width_lines(
                 row[f.name] = raw_val
         rows.append(row)
 
-    # Schema explicito: a inferencia olha so as primeiras linhas e uma coluna vazia
-    # nelas virava Null, quebrando no primeiro valor de texto.
-    schema = {"competencia": pl.Utf8, "versao": pl.Int64}
-    schema.update({f.name: _DTYPES[kind] for f, kind, _ in kinds})
+    schema = _frame_schema(layout)
     if not rows:
         return pl.DataFrame(schema=schema)
     return pl.DataFrame(rows, schema=schema, infer_schema_length=None)
 
 
+def _frame_schema(layout: list[FixedField]) -> dict[str, Any]:
+    """Schema explicito das colunas de uma tabela.
+
+    A inferencia olha so as primeiras linhas e uma coluna vazia nelas virava Null,
+    quebrando no primeiro valor de texto.
+    """
+    schema: dict[str, Any] = {"competencia": pl.Utf8, "versao": pl.Int64}
+    schema.update({f.name: _DTYPES[_effective_kind(f)[0]] for f in layout})
+    return schema
+
+
+def _competencia_e_versao(path: Path) -> tuple[str, int] | None:
+    """``(AAAAMM, versao)`` do nome do ZIP; ``None`` sem competencia reconhecivel."""
+    match = COMPETENCIA_RE.search(path.name)
+    if match:
+        return match.group("competencia"), int(match.group("version") or 0)
+    m_comp = re.search(r"\b(20\d{4})\b", path.stem)
+    return (m_comp.group(1), 0) if m_comp else None
+
+
+class _Zip:
+    """Um ZIP mensal do bruto. So e aberto quando alguma tabela precisa dele."""
+
+    def __init__(self, path: Path, comp: str, ver: int) -> None:
+        self.path = path
+        self.comp = comp
+        self.ver = ver
+        self.key = composite_file_key(path)
+        self.falha: str | None = None  # erro ao abrir, se houve
+        self.tabelas: dict[str, str] = {}  # tabela -> nome do membro no ZIP
+        self.layouts: dict[str, list[FixedField]] = {}
+        self._zf: zipfile.ZipFile | None = None
+        self._sha256: str | None = None
+
+    @property
+    def sha256(self) -> str:
+        if self._sha256 is None:
+            self._sha256 = sha256_file(self.path)
+        return self._sha256
+
+    def abrir(self, pilha: ExitStack) -> bool:
+        """Abre o ZIP uma vez (fechado com ``pilha``); ``False`` se nao abre."""
+        if self._zf is not None:
+            return True
+        if self.falha is not None:
+            return False
+        try:
+            zf = pilha.enter_context(zipfile.ZipFile(self.path, "r"))
+            self.layouts = _extract_layouts_from_zip(zf)
+            self.tabelas = {
+                Path(n).stem.lower(): n for n in zf.namelist() if _is_table_member(n)
+            }
+        except Exception as exc:
+            self.falha = str(exc)
+            return False
+        self._zf = zf
+        return True
+
+    def tamanho(self, tabela: str) -> int:
+        assert self._zf is not None
+        return self._zf.getinfo(self.tabelas[tabela]).file_size
+
+    def linhas(self, tabela: str) -> list[str]:
+        assert self._zf is not None
+        return self._zf.read(self.tabelas[tabela]).decode("latin-1").splitlines()
+
+
+@dataclass
+class _Membro:
+    """Uma tabela de um ZIP, membro do grupo (tabela, ano)."""
+
+    zip: _Zip
+    atual: bool  # ja esta no arquivo do ano com o sha do ZIP
+    layout: list[FixedField] | None = None
+
+
+class _Conversao:
+    """Uma execucao de ``convert``: escritores por tabela e caches da rodada."""
+
+    def __init__(
+        self, lake_dir: Path, force: bool, zip_comps: list[tuple[str, Path]]
+    ) -> None:
+        self.lake_dir = lake_dir
+        self.force = force
+        self.zip_comps = zip_comps
+        self.writers: dict[str, LakeWriter] = {}
+        self.emprestados: dict[tuple[str, str], list[FixedField] | None] = {}
+
+    def writer(self, tabela: str) -> LakeWriter:
+        if tabela not in self.writers:
+            self.writers[tabela] = LakeWriter(
+                self.lake_dir / SOURCE_ID / tabela,
+                DatasetDescriptor(
+                    source_id=SOURCE_ID,
+                    dataset_id=tabela,
+                    alias=tabela,
+                    partition_keys=PARTITION_KEYS,
+                    partition_types=partition_types_for(PARTITION_KEYS),
+                ),
+                force=self.force,
+            )
+        return self.writers[tabela]
+
+    def ano(
+        self,
+        ano: int,
+        zips: list[_Zip],
+        alvos: set[str] | None,
+        pilha: ExitStack,
+        res: ConvertResult,
+    ) -> None:
+        """Converte as tabelas dos ZIPs de um ano, um arquivo por tabela."""
+        if alvos is None:
+            # Sem alvo nao se sabe quais tabelas ha: todo ZIP e aberto.
+            for z in zips:
+                self._abrir(z, pilha, res)
+            tabelas = sorted({t for z in zips for t in z.tabelas})
+        else:
+            tabelas = sorted(alvos)
+        for tabela in tabelas:
+            self._grupo(tabela, ano, zips, pilha, res)
+
+    def _abrir(self, z: _Zip, pilha: ExitStack, res: ConvertResult) -> bool:
+        ja_falhou = z.falha is not None
+        if z.abrir(pilha):
+            return True
+        if not ja_falhou:
+            res.errors.append(f"Erro em {z.path.name}: {z.falha}")
+        return False
+
+    def _grupo(
+        self,
+        tabela: str,
+        ano: int,
+        zips: list[_Zip],
+        pilha: ExitStack,
+        res: ConvertResult,
+    ) -> None:
+        writer = self.writer(tabela)
+        particoes = {"ano": ano}
+        saidas = [output_id(particoes, tabela)]
+        membros: list[_Membro] = []
+        erro_de_membro = False
+        for z in zips:
+            # O ZIP em dia nao e aberto: o arquivo do ano ja o registra como
+            # membro. Tabela sem membro (ausente do ZIP ou nao convertida) nao
+            # esta em dia e o ZIP e aberto.
+            if writer.is_current_member(
+                z.path,
+                group_key=tabela,
+                partitions=particoes,
+                member_key=z.key,
+                contract_version=CONTRACT_VERSION,
+                origin_outputs=saidas,
+            ):
+                membros.append(_Membro(z, True))
+                continue
+            if not self._abrir(z, pilha, res) or tabela not in z.tabelas:
+                continue
+            # Cada tabela tem o seu `<tabela>_layout.txt`. Sem ele a tabela nao e
+            # convertida (nunca emprestar o layout de outra).
+            layout, erro = self._layout(z, tabela, conferir=True)
+            if erro:
+                res.errors.append(erro)
+                erro_de_membro = True
+            elif z.tamanho(tabela) == 0:
+                logger.info(
+                    "sigtap: %s %s vazia no ZIP; nada a converter", z.comp, tabela
+                )
+            else:
+                membros.append(_Membro(z, False, layout))
+        if not membros:
+            return
+        # Membro que nao pode ser lido nao deve apagar as linhas que o arquivo do
+        # ano ja tem dele: sem prune o que nao esta na lista fica como esta.
+        prune = not (erro_de_membro or any(z.falha is not None for z in zips))
+        grupo = [self._membro(m, tabela, saidas, pilha) for m in membros]
+        arquivo = partition_dir(writer.dataset_dir, particoes) / f"{tabela}.parquet"
+        opcoes: dict[str, Any] = {
+            "partitions": particoes,
+            "contract_version": CONTRACT_VERSION,
+            "prune": prune,
+        }
+        try:
+            if writer.is_current_group(tabela, grupo, **opcoes):
+                res.skipped += len(grupo)
+                return
+            out = writer.write_group(
+                tabela,
+                grupo,
+                sort_by=["mes"],
+                schema=self._schema(arquivo, membros, tabela, pilha, res),
+                **opcoes,
+            )
+        except Exception as exc:
+            res.errors.append(f"Erro em {SOURCE_ID}/{tabela} ano={ano}: {exc}")
+            return
+        res.converted += len(out.written)
+        res.skipped += len(out.kept)
+
+    def _layout(
+        self, z: _Zip, tabela: str, *, conferir: bool
+    ) -> tuple[list[FixedField] | None, str | None]:
+        """Layout da tabela no ZIP, ou o da mesma tabela na competencia mais proxima.
+
+        ``conferir`` valida o layout emprestado contra a largura dos dados (le a
+        tabela); sem ele so se descobre qual layout seria usado.
+        """
+        layout = z.layouts.get(tabela)
+        if layout:
+            return layout, None
+        # Fallback explicito: layout da MESMA tabela na competencia mais proxima
+        # (nunca o de outra tabela), aceito so se a largura bate com a dos dados.
+        emprestado = _borrow_layout(tabela, z.comp, self.zip_comps, self.emprestados)
+        if emprestado is None:
+            return None, (
+                f"{z.path.name}: {tabela} sem arquivo de layout "
+                f"({tabela}_layout.txt) nem em outra competencia; "
+                "tabela nao convertida"
+            )
+        src_comp, layout = emprestado
+        if conferir:
+            largura = max((len(x.rstrip("\r\n")) for x in z.linhas(tabela)), default=0)
+            if largura != _layout_width(layout):
+                return None, (
+                    f"{z.path.name}: {tabela} sem layout; o de {src_comp} e "
+                    f"incompativel (largura {_layout_width(layout)} contra "
+                    f"{largura} nos dados); tabela nao convertida"
+                )
+            logger.warning(
+                "sigtap: %s %s sem layout no ZIP; usando o de %s",
+                z.comp,
+                tabela,
+                src_comp,
+            )
+        return layout, None
+
+    def _membro(
+        self, m: _Membro, tabela: str, saidas: list[str], pilha: ExitStack
+    ) -> GroupMember:
+        z = m.zip
+
+        def dados() -> pl.DataFrame:
+            # So chamada para o membro a gravar; o ZIP ja esta aberto, salvo se o
+            # arquivo do ano nao confirmou um membro dado como em dia.
+            if not z.abrir(pilha):
+                raise OSError(f"{z.path.name}: {z.falha}")
+            layout = m.layout
+            if layout is None:
+                layout, erro = self._layout(z, tabela, conferir=True)
+                if layout is None:
+                    raise ValueError(erro)
+            return parse_fixed_width_lines(z.linhas(tabela), layout, z.comp, z.ver)
+
+        return GroupMember(
+            src=z.path,
+            data=dados,
+            key=z.key,
+            columns={"mes": z.comp[4:6]},
+            sha256=z.sha256,
+            origin_outputs=saidas,
+        )
+
+    def _schema(
+        self,
+        arquivo: Path,
+        membros: list[_Membro],
+        tabela: str,
+        pilha: ExitStack,
+        res: ConvertResult,
+    ) -> dict[str, Any]:
+        """Uniao das colunas do arquivo do ano e dos membros a gravar.
+
+        O layout de uma tabela ganha colunas no meio do ano (``tb_cid`` em 2011,
+        por exemplo) e o grupo tem um esquema so: o membro que nao traz a coluna a
+        recebe nula. As colunas dos membros em dia saem do rodape do arquivo do
+        ano, sem abrir o ZIP deles.
+        """
+        schema: dict[str, Any] = {}
+        try:
+            existente = pl.read_parquet_schema(arquivo)
+        except Exception:
+            existente = None  # sem arquivo (ou ilegivel): nenhum membro esta nele
+        for nome, tipo in (existente or {}).items():
+            if nome not in (ORIGIN_COLUMN, "mes"):
+                schema[nome] = tipo
+        for m in membros:
+            if m.layout is None and existente is None:
+                if self._abrir(m.zip, pilha, res):
+                    m.layout, _ = self._layout(m.zip, tabela, conferir=False)
+            for nome, tipo in _frame_schema(m.layout or []).items():
+                schema[nome] = tipo
+        return schema
+
+
 class SigtapLakeConverter:
-    """Universal Hive Parquet Lake converter for SIGTAP."""
+    """Conversor do lake do SIGTAP."""
 
     source_id = SOURCE_ID
 
@@ -255,198 +519,26 @@ class SigtapLakeConverter:
         force: bool = False,
     ) -> ConvertResult:
         res = ConvertResult()
-        target_datasets = set(datasets) if datasets else None
+        alvos = set(datasets) if datasets else None
 
         tabelas_dir = input_dir / "tabelas"
         if not tabelas_dir.is_dir():
             tabelas_dir = input_dir
 
-        zip_files = _current_by_competencia(list(tabelas_dir.glob("*.zip")))
-        writers: dict[str, LakeWriter] = {}
+        por_ano: dict[int, list[_Zip]] = {}
+        for zpath in _current_by_competencia(list(tabelas_dir.glob("*.zip"))):
+            achado = _competencia_e_versao(zpath)
+            if achado:
+                z = _Zip(zpath, *achado)
+                por_ano.setdefault(int(z.comp[:4]), []).append(z)
+        zip_comps = [(z.comp, z.path) for zs in por_ano.values() for z in zs]
+        conversao = _Conversao(lake_dir, force, zip_comps)
 
-        def get_writer(table_name: str) -> LakeWriter:
-            if table_name not in writers:
-                writers[table_name] = LakeWriter(
-                    lake_dir / SOURCE_ID / table_name,
-                    DatasetDescriptor(
-                        source_id=SOURCE_ID,
-                        dataset_id=table_name,
-                        alias=table_name,
-                        partition_keys=PARTITION_KEYS,
-                        partition_types=partition_types_for(PARTITION_KEYS),
-                    ),
-                    force=force,
-                )
-            return writers[table_name]
-
-        zip_comps: list[tuple[str, Path]] = []
-        for z in zip_files:
-            m_z = COMPETENCIA_RE.search(z.name) or re.search(r"\b(20\d{4})\b", z.stem)
-            if m_z:
-                zip_comps.append((m_z.group(m_z.lastindex or 0), z))
-        borrowed_cache: dict[tuple[str, str], list[FixedField] | None] = {}
-        # Para explicar, no fim, por que uma pasta ``competencia=`` antiga sobrou.
-        motivos: dict[tuple[str, str], str] = {}
-        tabelas_do_zip: dict[str, set[str]] = {}
-        zips_com_falha: set[str] = set()
-
-        for zpath in zip_files:
-            match = COMPETENCIA_RE.search(zpath.name)
-            if not match:
-                # Try finding 6-digit year-month in stem
-                m_comp = re.search(r"\b(20\d{4})\b", zpath.stem)
-                if m_comp:
-                    comp = m_comp.group(1)
-                    ver = 0
-                else:
-                    continue
-            else:
-                comp = match.group("competencia")
-                ver = int(match.group("version") or 0)
-
-            # Com o alvo conhecido, o ZIP em dia nao precisa ser aberto: abri-lo e
-            # lento no bruto em disco de rede e o build roda uma tarefa por tabela.
-            # O Parquet registra este ZIP como origem, logo a tabela esta nele; tabela
-            # sem Parquet (ausente do ZIP ou nao convertida) nao esta em dia e o ZIP
-            # e aberto como antes.
-            if target_datasets and not force:
-                partitions_z = competencia_partitions(comp)
-                file_key_z = composite_file_key(zpath)
-                em_dia = [
-                    t
-                    for t in sorted(target_datasets)
-                    if get_writer(t).is_current(
-                        zpath, partitions=partitions_z, file_key_name=file_key_z
-                    )
-                ]
-                if len(em_dia) == len(target_datasets):
-                    for t in em_dia:
-                        res.skipped += 1
-                        _remove_legacy_partition(get_writer(t).dataset_dir, t, comp)
-                    tabelas_do_zip[comp] = set(em_dia)
-                    continue
-
-            try:
-                with zipfile.ZipFile(zpath, "r") as zf:
-                    layouts = _extract_layouts_from_zip(zf)
-                    names = zf.namelist()
-                    data_files = [n for n in names if _is_table_member(n)]
-                    tabelas_do_zip[comp] = {Path(n).stem.lower() for n in data_files}
-
-                    for dfile in data_files:
-                        table_name = Path(dfile).stem.lower()
-                        if target_datasets and table_name not in target_datasets:
-                            continue
-
-                        writer = get_writer(table_name)
-                        # Sem membro (a tabela e o dataset): igual a file_key(zpath).
-                        file_key_name = composite_file_key(zpath)
-                        partitions = competencia_partitions(comp)
-                        if not force and writer.is_current(
-                            zpath,
-                            partitions=partitions,
-                            file_key_name=file_key_name,
-                        ):
-                            res.skipped += 1
-                            _remove_legacy_partition(
-                                writer.dataset_dir, table_name, comp
-                            )
-                            continue
-
-                        # Cada tabela tem o seu `<tabela>_layout.txt`. Sem ele a
-                        # tabela nao e convertida (nunca emprestar o layout de outra).
-                        content = zf.read(dfile).decode("latin-1")
-                        lines = content.splitlines()
-                        layout = layouts.get(table_name)
-                        if not layout:
-                            # Fallback explicito: layout da MESMA tabela na
-                            # competencia mais proxima (nunca o de outra tabela),
-                            # aceito so se a largura bate com a dos dados.
-                            borrowed = _borrow_layout(
-                                table_name, comp, zip_comps, borrowed_cache
-                            )
-                            if borrowed is None:
-                                motivos[(table_name, comp)] = (
-                                    "tabela sem arquivo de layout, nao convertida"
-                                )
-                                res.errors.append(
-                                    f"{zpath.name}: {table_name} sem arquivo de "
-                                    f"layout ({table_name}_layout.txt) nem em outra "
-                                    "competencia; tabela nao convertida"
-                                )
-                                continue
-                            src_comp, layout = borrowed
-                            width = max(
-                                (len(x.rstrip("\r\n")) for x in lines), default=0
-                            )
-                            if width != _layout_width(layout):
-                                motivos[(table_name, comp)] = (
-                                    "layout emprestado incompativel, tabela nao "
-                                    "convertida"
-                                )
-                                res.errors.append(
-                                    f"{zpath.name}: {table_name} sem layout; o de "
-                                    f"{src_comp} e incompativel (largura "
-                                    f"{_layout_width(layout)} contra {width} nos "
-                                    "dados); tabela nao convertida"
-                                )
-                                continue
-                            logger.warning(
-                                "sigtap: %s %s sem layout no ZIP; usando o de %s",
-                                comp,
-                                table_name,
-                                src_comp,
-                            )
-                        df = parse_fixed_width_lines(lines, layout, comp, ver)
-                        if df.height > 0:
-                            writer.write_polars(
-                                df,
-                                zpath,
-                                partitions=partitions,
-                                file_key_name=file_key_name,
-                            )
-                            _remove_legacy_partition(
-                                writer.dataset_dir, table_name, comp
-                            )
-                            res.converted += 1
-                        else:
-                            motivos[(table_name, comp)] = (
-                                "tabela vazia no ZIP, nada foi convertido"
-                            )
-            except Exception as exc:
-                zips_com_falha.add(comp)
-                res.errors.append(f"Erro em {zpath.name}: {exc}")
-
-        # Nada e apagado aqui: a pasta antiga que sobrou e relatada para o operador.
-        vistas = {c for c, _ in zip_comps}
-        lake_sigtap = lake_dir / SOURCE_ID
-        if lake_sigtap.is_dir():
-            for tdir in sorted(p for p in lake_sigtap.iterdir() if p.is_dir()):
-                if target_datasets and tdir.name not in target_datasets:
-                    continue
-                for legacy in sorted(tdir.glob("competencia=*")):
-                    comp = legacy.name.split("=", 1)[1]
-                    motivo = motivos.get((tdir.name, comp))
-                    if motivo is None and comp in zips_com_falha:
-                        motivo = "falha ao ler ou converter o ZIP da competencia"
-                    elif motivo is None and comp not in vistas:
-                        motivo = (
-                            "competencia fora do bruto visto (ZIP ausente ou sem "
-                            "nome reconhecivel)"
-                        )
-                    elif motivo is None and tdir.name not in tabelas_do_zip.get(
-                        comp, set()
-                    ):
-                        motivo = "a tabela nao esta no ZIP desta competencia"
-                    elif motivo is None:
-                        motivo = (
-                            "a pasta ainda tem arquivo que nao e Parquet deste dataset"
-                        )
-                    res.errors.append(
-                        f"sigtap/{tdir.name}: pasta do layout antigo mantida "
-                        f"({motivo}); apague a mao se for residuo: {legacy}"
-                    )
-
+        for ano in sorted(por_ano):
+            zips = sorted(por_ano[ano], key=lambda z: (z.comp, z.path.name))
+            # Os ZIPs do ano ficam abertos enquanto as tabelas do ano sao gravadas.
+            with ExitStack() as pilha:
+                conversao.ano(ano, zips, alvos, pilha, res)
         return res
 
 
