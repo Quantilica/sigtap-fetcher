@@ -251,8 +251,8 @@ def test_layout_ausente_usa_o_da_competencia_mais_proxima(tmp_path: Path) -> Non
     lake = tmp_path / "lake"
     res = converter.convert(tmp_path / "raw", lake)
     assert res.errors == [], res.errors
-    old = pl.read_parquet(
-        lake / "sigtap" / tabela / "ano=2014" / "mes=12" / "*.parquet"
+    old = pl.read_parquet(lake / "sigtap" / tabela / "ano=2014" / "*.parquet").filter(
+        pl.col("mes") == "12"
     )
     assert old.height == 2
     assert old["co_a"].to_list() == ["aa", "cc"]

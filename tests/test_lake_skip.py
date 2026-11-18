@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-import builtins
 import hashlib
-import io
 import json
 import zipfile
 from pathlib import Path
-
-import pytest
-import quantilica.core.manifests as manifests_mod
 
 from sigtap_fetcher.lake import converter
 
@@ -54,61 +49,6 @@ def _sidecars(raiz: Path) -> None:
                 ),
                 encoding="utf-8",
             )
-
-
-@pytest.fixture
-def bruto_lido(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Registra todo ``open``/``io.open``/``Path.open`` de arquivo do bruto (menos o
-    sidecar, lido de propósito) e todo hash do bruto feito lendo o arquivo."""
-    vistas: list[str] = []
-    original_open = builtins.open
-    original_io_open = io.open
-    original_path_open = Path.open
-    original_hash = manifests_mod.sha256_file
-
-    def do_bruto(arquivo) -> bool:  # noqa: ANN001
-        nome = str(arquivo)
-        return "/raw/" in nome and not nome.endswith(".manifest.json")
-
-    def open_espia(file, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
-        if do_bruto(file):
-            vistas.append(f"open:{Path(file).name}")
-        return original_open(file, *args, **kwargs)
-
-    def io_open_espia(file, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
-        if do_bruto(file):
-            vistas.append(f"io.open:{Path(file).name}")
-        return original_io_open(file, *args, **kwargs)
-
-    def path_open_espia(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
-        if do_bruto(self):
-            vistas.append(f"Path.open:{self.name}")
-        return original_path_open(self, *args, **kwargs)
-
-    def hash_espia(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
-        vistas.append("hash")
-        return original_hash(*args, **kwargs)
-
-    monkeypatch.setattr(builtins, "open", open_espia)
-    monkeypatch.setattr(io, "open", io_open_espia)
-    monkeypatch.setattr(Path, "open", path_open_espia)
-    monkeypatch.setattr(manifests_mod, "sha256_file", hash_espia)
-    return vistas
-
-
-@pytest.fixture
-def aberturas(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Registra cada ``zipfile.ZipFile`` aberto em modo de leitura."""
-    abertos: list[str] = []
-    original = zipfile.ZipFile
-
-    def espia(file, mode="r", *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
-        if mode == "r":
-            abertos.append(Path(file).name)
-        return original(file, mode, *args, **kwargs)
-
-    monkeypatch.setattr(zipfile, "ZipFile", espia)
-    return abertos
 
 
 def test_segunda_rodada_por_tabela_nao_abre_zip(
@@ -205,25 +145,6 @@ def test_sem_datasets_continua_abrindo_todos(
     res = converter.convert(raw, lake)
     assert (res.converted, res.skipped) == (0, 5)
     assert len(aberturas) == 3
-
-
-def test_pasta_legada_com_zip_pulado_nao_diz_tabela_fora_do_zip(
-    tmp_path: Path, aberturas: list[str]
-) -> None:
-    raw, lake = _bruto(tmp_path), tmp_path / "lake"
-    converter.convert(raw, lake, datasets=["tb_grupo"])
-    # pasta do layout antigo com um arquivo alheio: nao e apagada
-    legado = lake / "sigtap" / "tb_grupo" / "competencia=202601"
-    legado.mkdir()
-    (legado / "nota.txt").write_text("alheio")
-
-    aberturas.clear()
-    res = converter.convert(raw, lake, datasets=["tb_grupo"])
-    assert aberturas == []
-    assert res.converted == 0 and res.skipped == 3
-    assert len(res.errors) == 1
-    assert "nao e Parquet deste dataset" in res.errors[0]
-    assert "nao esta no ZIP" not in res.errors[0]
 
 
 def test_sem_sidecar_o_espiao_de_hash_dispara(

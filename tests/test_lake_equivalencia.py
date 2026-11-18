@@ -1,9 +1,9 @@
-"""Prova de equivalência: o lake tem o mesmo conteúdo antes e depois da partição.
+"""Prova de equivalência: o arquivo do ano tem as mesmas linhas de cada competência.
 
-``golden/lake_antes_da_particao.json`` foi gerado pelo conversor que gravava em
-``competencia=AAAAMM/`` (commit anterior à mudança). Aqui o conversor atual lê os
-mesmos brutos e o retrato do lake, por tabela e competência (linhas, colunas e
-tipos, conteúdo ordenado), tem de ser idêntico; só a pasta muda.
+``golden/lake_por_competencia.json`` é o retrato (linhas, colunas e tipos, conteúdo
+ordenado) do mesmo bruto gravado com um Parquet por tabela e competência. Aqui o
+conversor lê os mesmos brutos, grava um Parquet por tabela e ano e o retrato de cada
+competência, separada pela coluna ``mes``, tem de coincidir; só a pasta muda.
 """
 
 from __future__ import annotations
@@ -17,64 +17,62 @@ pytest.importorskip("quantilica.analytics.lake")
 
 from sigtap_fetcher.lake import converter  # noqa: E402
 
-from .lake_fixtures import (  # noqa: E402
-    GOLDEN,
-    build_raw,
-    contagem_de_arquivos,
-    snapshot,
-)
+from .lake_fixtures import GOLDEN, build_raw, parquets, snapshot  # noqa: E402
 
 
 def _golden() -> dict:
-    return json.loads(GOLDEN.read_text(encoding="utf-8"))
+    return json.loads(GOLDEN.read_text(encoding="utf-8"))["lake"]
 
 
-def _viaje_json(obj: dict) -> dict:
-    return json.loads(json.dumps(obj, ensure_ascii=False))
-
-
-def test_conteudo_do_lake_igual_ao_do_conversor_anterior(tmp_path: Path) -> None:
+def test_conteudo_de_cada_competencia_igual_ao_do_golden(tmp_path: Path) -> None:
     build_raw(tmp_path / "raw")
     res = converter.convert(tmp_path / "raw", tmp_path / "lake")
     assert not res.errors
 
-    atual = _viaje_json(snapshot(tmp_path / "lake"))
-    golden = _golden()["lake"]
+    atual = snapshot(tmp_path / "lake")
+    golden = _golden()
 
     assert sorted(atual) == sorted(golden)
     for tabela, esperado in golden.items():
         obtido = atual[tabela]
-        assert obtido["colunas"] == esperado["colunas"], tabela
-        assert sorted(obtido["periodos"]) == sorted(esperado["periodos"]), tabela
+        assert sorted(obtido) == sorted(esperado["periodos"]), tabela
         for comp, dados in esperado["periodos"].items():
-            lido = obtido["periodos"][comp]
+            lido = obtido[comp]
             assert lido["linhas"] == dados["linhas"], (tabela, comp)
-            assert lido["colunas"] == dados["colunas"], (tabela, comp)
-            assert lido["conteudo"] == dados["conteudo"], (tabela, comp)
+            # As colunas da competência, com os mesmos tipos; as que só outro mês
+            # do ano traz (o esquema do arquivo é a união) vêm nulas.
+            for coluna in dados["colunas"]:
+                assert coluna in lido["colunas"], (tabela, comp, coluna)
+            nomes = [c for c, _ in dados["colunas"]]
+            extras = {c for c, _ in lido["colunas"]} - set(nomes)
+            assert not extras & set(lido["nao_nulas"]), (tabela, comp, extras)
+            posicao = {c: i for i, (c, _) in enumerate(lido["colunas"])}
+            projetado = sorted(
+                [row[posicao[c]] for c in nomes] for row in lido["conteudo"]
+            )
+            assert projetado == dados["conteudo"], (tabela, comp)
 
 
-def test_pastas_ano_mes_e_um_parquet_por_tabela_e_competencia(tmp_path: Path) -> None:
+def test_um_parquet_por_tabela_e_ano(tmp_path: Path) -> None:
     build_raw(tmp_path / "raw")
     converter.convert(tmp_path / "raw", tmp_path / "lake")
 
-    depois = contagem_de_arquivos(tmp_path / "lake")
-    antes = _golden()["contagem_de_arquivos"]
-
-    # Mesma contagem de arquivos: um por tabela e competência (não há o que agrupar).
-    assert depois == antes
-    assert sum(sum(c.values()) for c in antes.values()) == 18
     lake = tmp_path / "lake" / "sigtap"
-    assert not list(lake.rglob("competencia=*"))
-    arquivo = (
-        lake / "tb_grupo" / "ano=2026" / "mes=10" / "TabelaUnificada_202610.parquet"
-    )
-    assert arquivo.is_file()
-    assert (lake / "tb_grupo" / "ano=2008" / "mes=01").is_dir()
+    esperado = {
+        f"{tabela}/ano={comp[:4]}/{tabela}.parquet"
+        for tabela, dados in _golden().items()
+        for comp in dados["periodos"]
+    }
+    obtido = {str(p.relative_to(lake)) for p in parquets(tmp_path / "lake")}
+    assert obtido == esperado
+    # 5 tabelas em 3 anos (2008, 2016 e 2026, que junta 3 competências): 15 arquivos.
+    assert len(obtido) == 15
+    assert not list(lake.rglob("mes=*"))
 
 
-def test_competencia_continua_como_coluna_de_dados(tmp_path: Path) -> None:
-    """Só a pasta muda: ``competencia`` (AAAAMM) segue nas linhas, ao lado de
-    ``ano`` e ``mes`` (partição), e concorda com elas."""
+def test_ano_e_mes_continuam_visiveis_na_consulta(tmp_path: Path) -> None:
+    """A partição é só ``ano``; ``mes`` é coluna do arquivo e ``competencia``
+    (AAAAMM) concorda com as duas."""
     import polars as pl
     from quantilica.analytics.lake import scan_dataset
 
@@ -85,9 +83,12 @@ def test_competencia_continua_como_coluna_de_dados(tmp_path: Path) -> None:
     assert {"competencia", "ano", "mes"} <= set(df.columns)
     esperado = df["ano"].cast(pl.String) + df["mes"]
     assert (df["competencia"] == esperado).all()
+    assert sorted(df["mes"].unique().to_list()) == ["01", "05", "10", "11", "12"]
+    assert df.filter(pl.col("mes") == "12").height == 1
 
 
-def test_lake_profile_devolve_periodo_mensal_das_tabelas(tmp_path: Path) -> None:
+def test_lake_profile_devolve_periodo_anual_das_tabelas(tmp_path: Path) -> None:
+    """A partição é o ano: o perfil lê o período da pasta e o devolve por ano."""
     pytest.importorskip("pyarrow")
     from quantilica.core.lake_profile import profile_from_lake
 
@@ -97,13 +98,8 @@ def test_lake_profile_devolve_periodo_mensal_das_tabelas(tmp_path: Path) -> None
     perfil = profile_from_lake(tmp_path / "lake", "sigtap", "tb_grupo")
 
     doc = perfil.perfil
-    assert doc["granularidade"] == "mensal"
-    assert doc["periodos"] == [
-        "2008-01",
-        "2016-05",
-        "2026-10",
-        "2026-11",
-        "2026-12",
-    ]
-    assert doc["linhas"] == [2, 2, 2, 8, 1]
+    assert doc["granularidade"] == "anual"
+    assert doc["periodos"] == ["2008", "2016", "2026"]
+    assert doc["linhas"] == [2, 2, 11]
     assert "versao" in doc["colunas"]
+    assert "mes" not in doc["colunas"]

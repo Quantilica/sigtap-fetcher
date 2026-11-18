@@ -1,30 +1,25 @@
-"""Brutos do SIGTAP e retrato do lake, para a prova de equivalência da partição.
+"""Brutos do SIGTAP e retrato do lake, para a prova de equivalência do conteúdo.
 
 ``build_raw`` copia os três ZIPs reais mínimos (200801, 201605 e 202610) e monta
 mais dois sintéticos (202611, com acento Latin-1 e coluna esparsa, e 202612 com
 uma tabela sem dado). ``snapshot`` descreve o lake por tabela e competência: número
 de linhas, colunas com tipo e conteúdo ordenado, lendo cada Parquet direto (sem
-hive), de modo que o mesmo retrato vale para as duas pastas (``competencia=AAAAMM``
-e ``ano=AAAA/mes=MM``). A coluna ``competencia`` é de dados no layout novo e da
-pasta no antigo; o retrato a trata igual nos dois.
-``golden/lake_antes_da_particao.json`` foi gerado pelo conversor da pasta
-``competencia=``, antes da mudança:
-
-    uv run --no-sync python -m tests.lake_fixtures --escrever-golden
+hive). O arquivo do ano guarda várias competências; o retrato separa as linhas de
+cada uma pela coluna ``mes``.
+``golden/lake_por_competencia.json`` é o retrato do mesmo bruto gravado com um
+Parquet por tabela e competência, gerado antes de o conversor passar a um Parquet
+por tabela e ano; só o conteúdo importa, não a pasta.
 """
 
 from __future__ import annotations
 
-import json
 import shutil
-import sys
-import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
 
 FIXTURES = Path(__file__).parent / "fixtures"
-GOLDEN = Path(__file__).parent / "golden" / "lake_antes_da_particao.json"
+GOLDEN = Path(__file__).parent / "golden" / "lake_por_competencia.json"
 
 REAIS = ("200801", "201605", "202610")
 
@@ -75,87 +70,43 @@ def build_raw(root: Path) -> list[Path]:
     return [*caminhos, sint1, sint2]
 
 
-def _competencia_do_caminho(path: Path, dataset_dir: Path) -> str:
-    """``AAAAMM`` da pasta: ``competencia=AAAAMM`` ou ``ano=AAAA/mes=MM``."""
-    chaves = dict(
-        p.split("=", 1) for p in path.relative_to(dataset_dir).parts[:-1] if "=" in p
-    )
-    if "competencia" in chaves:
-        return chaves["competencia"]
-    return f"{int(chaves['ano']):04d}{int(chaves['mes']):02d}"
-
-
 def snapshot(lake_dir: Path) -> dict[str, Any]:
-    """Retrato do lake por tabela e competência, sem depender da pasta."""
+    """Retrato do lake por tabela e competência (``AAAAMM``).
+
+    Por competência: ``linhas``, ``colunas`` (nome e tipo, ordenadas por nome),
+    ``conteudo`` (linhas ordenadas, nulo como texto vazio) e ``nao_nulas`` (colunas
+    com algum valor). As colunas ``mes`` e ``_origem``, do arquivo do ano, ficam de
+    fora; ``competencia`` é a de dados.
+    """
     import polars as pl
 
     saida: dict[str, Any] = {}
     base = lake_dir / "sigtap"
     for tabela in sorted(p.name for p in base.iterdir() if p.is_dir()):
-        dataset_dir = base / tabela
         periodos: dict[str, Any] = {}
-        colunas: dict[str, str] = {}
-        for arquivo in sorted(dataset_dir.rglob("*.parquet")):
-            comp = _competencia_do_caminho(arquivo, dataset_dir)
-            df = pl.read_parquet(arquivo, hive_partitioning=False)
-            if "competencia" not in df.columns:
-                df = df.with_columns(pl.lit(comp).alias("competencia"))
-            df = df.select(sorted(df.columns))
-            assert comp not in periodos, (tabela, comp)  # um Parquet por competência
-            periodos[comp] = {
-                "linhas": df.height,
-                "colunas": [[c, str(t)] for c, t in df.schema.items()],
-                "conteudo": sorted(
-                    ["" if v is None else str(v) for v in row] for row in df.rows()
-                ),
-            }
-            colunas.update({c: str(t) for c, t in df.schema.items()})
-        saida[tabela] = {
-            "colunas": sorted(colunas.items()),
-            "periodos": dict(sorted(periodos.items())),
-        }
-    return saida
-
-
-def contagem_de_arquivos(lake_dir: Path) -> dict[str, dict[str, int]]:
-    """Parquets por tabela e competência (``AAAAMM``)."""
-    base = lake_dir / "sigtap"
-    saida: dict[str, dict[str, int]] = {}
-    for tabela in sorted(p.name for p in base.iterdir() if p.is_dir()):
-        comps: dict[str, int] = {}
         for arquivo in sorted((base / tabela).rglob("*.parquet")):
-            comp = _competencia_do_caminho(arquivo, base / tabela)
-            comps[comp] = comps.get(comp, 0) + 1
-        saida[tabela] = comps
+            ano = int(arquivo.parent.name.split("=", 1)[1])
+            df = pl.read_parquet(arquivo, hive_partitioning=False)
+            for mes in sorted(df["mes"].unique().to_list()):
+                parte = df.filter(pl.col("mes") == mes).drop("mes", "_origem")
+                parte = parte.select(sorted(parte.columns))
+                comp = f"{ano:04d}{mes}"
+                assert comp not in periodos, (tabela, comp)
+                periodos[comp] = {
+                    "linhas": parte.height,
+                    "colunas": [[c, str(t)] for c, t in parte.schema.items()],
+                    "nao_nulas": [
+                        c for c in parte.columns if parte[c].null_count() < parte.height
+                    ],
+                    "conteudo": sorted(
+                        ["" if v is None else str(v) for v in row]
+                        for row in parte.rows()
+                    ),
+                }
+        saida[tabela] = dict(sorted(periodos.items()))
     return saida
 
 
-def _escrever_golden() -> None:
-    from sigtap_fetcher.lake import converter
-
-    with tempfile.TemporaryDirectory(prefix="sigtap-golden-") as tmp:
-        raiz = Path(tmp)
-        build_raw(raiz / "raw")
-        resultado = converter.convert(raiz / "raw", raiz / "lake")
-        assert not resultado.errors, resultado.errors
-        GOLDEN.parent.mkdir(parents=True, exist_ok=True)
-        GOLDEN.write_text(
-            json.dumps(
-                {
-                    "contagem_de_arquivos": contagem_de_arquivos(raiz / "lake"),
-                    "lake": snapshot(raiz / "lake"),
-                },
-                ensure_ascii=False,
-                indent=1,
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-    print(f"golden escrito em {GOLDEN}")
-
-
-if __name__ == "__main__":
-    if "--escrever-golden" not in sys.argv:
-        raise SystemExit(__doc__)
-    _escrever_golden()
+def parquets(lake_dir: Path) -> list[Path]:
+    """Os Parquets do lake do SIGTAP, ordenados."""
+    return sorted((lake_dir / "sigtap").rglob("*.parquet"))
