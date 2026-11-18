@@ -1,120 +1,171 @@
 {
   "fonte": "sigtap",
   "dataset": "tb_procedimento",
-  "gerado_em": "2026-11-16T00:25:04+00:00",
+  "gerado_em": "2026-11-18T16:19:40+00:00",
   "particoes": [
-    "ano",
-    "mes"
+    "ano"
   ],
   "colunas": [
+    {
+      "nome": "competencia",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
+    },
     {
       "nome": "versao",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "co_procedimento",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "no_procedimento",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "tp_complexidade",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "tp_sexo",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "qt_maxima_execucao",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "qt_dias_permanencia",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "qt_pontos",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "vl_idade_minima",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "vl_idade_maxima",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "vl_sh",
       "tipos": [
         "double"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "vl_sa",
       "tipos": [
         "double"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "vl_sp",
       "tipos": [
         "double"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "co_financiamento",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "co_rubrica",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "dt_competencia",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
+    },
+    {
+      "nome": "mes",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
+    },
+    {
+      "nome": "_origem",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "qt_tempo_permanencia",
       "tipos": [
         "int64"
-      ]
-    },
-    {
-      "nome": "competencia",
-      "tipos": [
-        "large_string"
-      ]
+      ],
+      "periodo_inicio": "2012",
+      "periodo_fim": "2026"
     }
   ],
-  "arquivos": 227
+  "arquivos": 19
 }

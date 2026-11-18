@@ -7,6 +7,18 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [Não lançado]
 
+### Alterado
+- **Quebra de layout no lake: um Parquet por tabela e por ano.** Antes, cada tabela tinha um Parquet por competência (`sigtap/<tabela>/ano=AAAA/mes=MM/TabelaUnificada_AAAAMM.parquet`, 8.378 arquivos de cerca de 28 KB). Agora há um por tabela e ano, com as linhas de todas as competências do ano:
+  - antes: `ano=2026/mes=10/TabelaUnificada_202610.parquet`;
+  - depois: `ano=2026/tb_grupo.parquet`.
+  - A partição passa a ser só `ano` (inteiro). `mes` (texto de 2 dígitos) deixa de ser pasta e vira coluna do arquivo, ao lado de `competencia` (AAAAMM, como antes) e de `_origem` (chave do ZIP de origem da linha); `WHERE competencia = '202610'` e `WHERE ano = 2026 AND mes = '10'` continuam valendo. O arquivo do ano é ordenado por `mes`.
+  - Cada competência é um membro do grupo do ano (`LakeWriter.write_group`): competência nova, ou ZIP regerado com outro hash, reescreve só o arquivo do ano dela, e a que está em dia não é decodificada nem tem o ZIP aberto na conversão por tabela. ZIP que sai do bruto sai do arquivo do ano. Uma competência que passa a falhar (ZIP ilegível, tabela sem layout) mantém no arquivo as linhas que já tinha e o erro continua em `ConvertResult.errors`.
+  - O esquema do arquivo é a união das colunas das competências do ano (o layout de `tb_cid`, `tb_componente_rede` e `tb_procedimento` ganha coluna no meio de um ano): a competência que não traz a coluna a recebe nula.
+  - O `profile_from_lake` passa a devolver o período por ano (`granularidade: anual`), pois o período sai das pastas.
+  - A conversão não apaga os Parquets do layout anterior (`ano=AAAA/mes=MM/`): quem tem um lake já convertido precisa removê-los uma vez, e regerar os esquemas de `docs/` depois da reconversão.
+- Exige `quantilica-analytics>=0.15.0` no extra `analysis` (grupos que declaram as saídas de cada ZIP).
+- Documentação dos dados: partição `ano`, colunas `mes` e `_origem` no dicionário das 40 tabelas convertidas e esquemas regerados.
+
 ### Corrigido
 - Conversão do lake: com `datasets=[...]` e sem `force`, o ZIP cujas tabelas-alvo já estão em dia deixa de ser aberto (nem os arquivos de layout nem a lista de membros são lidos). Antes, cada tarefa por tabela abria todos os ZIPs antes de verificar o Parquet, o que em disco lento levava minutos por tabela sem nada a converter. As contagens de `converted` e `skipped` não mudam; o ZIP em que a tabela falta, o ZIP novo, `force` e a conversão sem `datasets` seguem abrindo o ZIP como antes.
 

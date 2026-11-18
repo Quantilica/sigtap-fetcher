@@ -1,6 +1,6 @@
 # SIGTAP — Tabela de Procedimentos, Medicamentos e OPM do SUS (`sigtap`)
 
-O `sigtap-fetcher` coleta a Tabela Unificada de Procedimentos, Medicamentos e Órteses, Próteses e Materiais Especiais (OPM) do SUS, o SIGTAP, publicada pelo Departamento de Informática do SUS (DATASUS), do Ministério da Saúde. A tabela é a lista oficial do que o SUS pode pagar ou registrar, com código, nome, valores, regras de uso e vínculos com habilitações, CIDs, ocupações e instrumentos de registro. O fetcher converte cada tabela do ZIP mensal para o lake em Parquet particionado por ano e mês da competência (`ano=AAAA/mes=MM/`).
+O `sigtap-fetcher` coleta a Tabela Unificada de Procedimentos, Medicamentos e Órteses, Próteses e Materiais Especiais (OPM) do SUS, o SIGTAP, publicada pelo Departamento de Informática do SUS (DATASUS), do Ministério da Saúde. A tabela é a lista oficial do que o SUS pode pagar ou registrar, com código, nome, valores, regras de uso e vínculos com habilitações, CIDs, ocupações e instrumentos de registro. O fetcher converte cada tabela do ZIP mensal para o lake em Parquet particionado por ano da competência: um arquivo por tabela e ano (`ano=AAAA/<tabela>.parquet`), com as competências do ano distinguidas pela coluna `mes`.
 
 O SIGTAP tem **41 datasets**, um por tabela do ZIP: as tabelas `tb_*` descrevem entidades (procedimento, CID, habilitação...) e as `rl_*` relacionam procedimentos a essas entidades. As descrições vêm da planilha oficial de layout que o próprio ZIP traz; onde ela não cobre a tabela, a página diz que a descrição é inferida.
 

@@ -1,42 +1,67 @@
 {
   "fonte": "sigtap",
   "dataset": "rl_procedimento_leito",
-  "gerado_em": "2026-11-16T00:25:03+00:00",
+  "gerado_em": "2026-11-18T16:19:40+00:00",
   "particoes": [
-    "ano",
-    "mes"
+    "ano"
   ],
   "colunas": [
+    {
+      "nome": "competencia",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
+    },
     {
       "nome": "versao",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "co_procedimento",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "co_tipo_leito",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "dt_competencia",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
-      "nome": "competencia",
+      "nome": "mes",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
+    },
+    {
+      "nome": "_origem",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     }
   ],
-  "arquivos": 227
+  "arquivos": 19
 }

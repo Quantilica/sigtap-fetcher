@@ -1,42 +1,67 @@
 {
   "fonte": "sigtap",
   "dataset": "tb_descricao_detalhe",
-  "gerado_em": "2026-11-16T00:25:03+00:00",
+  "gerado_em": "2026-11-18T16:19:40+00:00",
   "particoes": [
-    "ano",
-    "mes"
+    "ano"
   ],
   "colunas": [
+    {
+      "nome": "competencia",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2010",
+      "periodo_fim": "2026"
+    },
     {
       "nome": "versao",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2010",
+      "periodo_fim": "2026"
     },
     {
       "nome": "co_detalhe",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2010",
+      "periodo_fim": "2026"
     },
     {
       "nome": "ds_detalhe",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2010",
+      "periodo_fim": "2026"
     },
     {
       "nome": "dt_competencia",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2010",
+      "periodo_fim": "2026"
     },
     {
-      "nome": "competencia",
+      "nome": "mes",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2010",
+      "periodo_fim": "2026"
+    },
+    {
+      "nome": "_origem",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2010",
+      "periodo_fim": "2026"
     }
   ],
-  "arquivos": 195
+  "arquivos": 17
 }

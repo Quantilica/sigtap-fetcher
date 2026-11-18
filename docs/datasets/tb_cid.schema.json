@@ -1,60 +1,91 @@
 {
   "fonte": "sigtap",
   "dataset": "tb_cid",
-  "gerado_em": "2026-11-16T00:25:03+00:00",
+  "gerado_em": "2026-11-18T16:19:40+00:00",
   "particoes": [
-    "ano",
-    "mes"
+    "ano"
   ],
   "colunas": [
+    {
+      "nome": "competencia",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
+    },
     {
       "nome": "versao",
       "tipos": [
         "int64"
-      ]
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "co_cid",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "no_cid",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "tp_agravo",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "tp_sexo",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
+    },
+    {
+      "nome": "mes",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
+    },
+    {
+      "nome": "_origem",
+      "tipos": [
+        "string"
+      ],
+      "periodo_inicio": "2008",
+      "periodo_fim": "2026"
     },
     {
       "nome": "tp_estadio",
       "tipos": [
-        "large_string"
-      ]
+        "string"
+      ],
+      "periodo_inicio": "2011",
+      "periodo_fim": "2026"
     },
     {
       "nome": "vl_campos_irradiados",
       "tipos": [
         "int64"
-      ]
-    },
-    {
-      "nome": "competencia",
-      "tipos": [
-        "large_string"
-      ]
+      ],
+      "periodo_inicio": "2011",
+      "periodo_fim": "2026"
     }
   ],
-  "arquivos": 227
+  "arquivos": 19
 }

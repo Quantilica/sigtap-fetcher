@@ -78,12 +78,12 @@ Esta tabela não consta da planilha oficial de layout do ZIP (que traz só as co
 ## No lake
 
 - Sem dataset no lake: o conversor não grava Parquet para arquivo sem linhas, então `sigtap/rl_procedimento_tuss` não existe (estado `so-bruto`: só o ZIP bruto traz o arquivo, vazio).
-- Se a fonte passar a preencher a tabela, o conversor a grava como as demais relações, particionada por `ano` e `mes`, com as colunas `co_procedimento`, `co_tuss`, `versao` e `competencia`.
+- Se a fonte passar a preencher a tabela, o conversor a grava como as demais relações, particionada por `ano`, com as colunas `co_procedimento`, `co_tuss`, `versao`, `competencia`, `mes` e `_origem`.
 - O conversor lê cada linha de largura fixa com o layout do próprio ZIP, aparando espaços nas pontas; campo em branco vira nulo e texto é decodificado de ISO-8859-1 para UTF-8.
 - Colunas numéricas viram inteiros ou decimais conforme o layout; valor que não converte vira nulo. Os valores `9999` que a fonte usa como 'não se aplica' ficam como estão.
 - Linhas totalmente em branco são ignoradas. Se um ZIP traz mais de uma versão da mesma competência, só a de maior sufixo `_v` é convertida.
-- As colunas `versao` (sufixo `_v` do ZIP) e `competencia` (AAAAMM, igual às pastas `ano=`/`mes=`) são acrescentadas pelo conversor.
-- O layout desta tabela não tem `DT_COMPETENCIA`; a competência só consta da coluna `competencia` (e das pastas `ano=`/`mes=`).
+- As colunas `versao` (sufixo `_v` do ZIP), `competencia` (AAAAMM, igual a `ano` e `mes` juntos), `mes` e `_origem` são acrescentadas pelo conversor.
+- O layout desta tabela não tem `DT_COMPETENCIA`; a competência só consta da coluna `competencia` (e de `ano` e `mes`).
 
 ## Cuidados de uso
 

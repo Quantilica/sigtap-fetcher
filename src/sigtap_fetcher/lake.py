@@ -279,7 +279,7 @@ class _Membro:
     """Uma tabela de um ZIP, membro do grupo (tabela, ano)."""
 
     zip: _Zip
-    atual: bool  # ja esta no arquivo do ano com o sha do ZIP
+    # None para o membro em dia (o ZIP nao foi aberto para resolver o layout).
     layout: list[FixedField] | None = None
 
 
@@ -362,7 +362,7 @@ class _Conversao:
                 contract_version=CONTRACT_VERSION,
                 origin_outputs=saidas,
             ):
-                membros.append(_Membro(z, True))
+                membros.append(_Membro(z))
                 continue
             if not self._abrir(z, pilha, res) or tabela not in z.tabelas:
                 continue
@@ -377,7 +377,7 @@ class _Conversao:
                     "sigtap: %s %s vazia no ZIP; nada a converter", z.comp, tabela
                 )
             else:
-                membros.append(_Membro(z, False, layout))
+                membros.append(_Membro(z, layout))
         if not membros:
             return
         # Membro que nao pode ser lido nao deve apagar as linhas que o arquivo do
