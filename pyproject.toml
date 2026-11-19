@@ -1,6 +1,6 @@
 [project]
 name = "sigtap-fetcher"
-version = "0.5.0"
+version = "0.6.0"
 description = "Coletor e conversor Lake Hive da Tabela Unificada de Procedimentos, Medicamentos e OPM do SUS (SIGTAP)"
 readme = "README.md"
 authors = [

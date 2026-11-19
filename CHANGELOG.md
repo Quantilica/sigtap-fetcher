@@ -5,9 +5,10 @@ Todas as alterações notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.6.0] - 2026-11-19
 
 ### Alterado
+
 - **Quebra de layout no lake: um Parquet por tabela e por ano.** Antes, cada tabela tinha um Parquet por competência (`sigtap/<tabela>/ano=AAAA/mes=MM/TabelaUnificada_AAAAMM.parquet`, 8.378 arquivos de cerca de 28 KB). Agora há um por tabela e ano, com as linhas de todas as competências do ano:
   - antes: `ano=2026/mes=10/TabelaUnificada_202610.parquet`;
   - depois: `ano=2026/tb_grupo.parquet`.
@@ -22,13 +23,11 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   - A conversão não apaga os Parquets do layout anterior (`ano=AAAA/mes=MM/`): quem tem um lake já convertido precisa removê-los uma vez, e regerar os esquemas de `docs/` depois da reconversão.
 - Exige `quantilica-analytics>=0.15.0` no extra `analysis` (grupos que declaram as saídas de cada ZIP).
 - Documentação dos dados: partição `ano`, colunas `mes` e `_origem` no dicionário das 40 tabelas convertidas e esquemas regerados.
+- CI e infraestrutura alinhados ao template (fetcher-template v0.2.1).
 
 ### Corrigido
-- Conversão do lake: com `datasets=[...]` e sem `force`, o ZIP cujas tabelas-alvo já estão em dia deixa de ser aberto (nem os arquivos de layout nem a lista de membros são lidos). Antes, cada tarefa por tabela abria todos os ZIPs antes de verificar o Parquet, o que em disco lento levava minutos por tabela sem nada a converter. As contagens de `converted` e `skipped` não mudam; o ZIP em que a tabela falta, o ZIP novo, `force` e a conversão sem `datasets` seguem abrindo o ZIP como antes.
 
-### Alterado
-- Exige `quantilica-analytics>=0.14.0` no extra `analysis`: o pulo do ZIP em dia depende do hash registrado no sidecar do bruto, que o analytics só usa desde essa versão (testes de pulo com sidecar e espião de hash).
-- CI e infraestrutura alinhados ao template (fetcher-template v0.2.1).
+- Conversão do lake: com `datasets=[...]` e sem `force`, o ZIP cujas tabelas-alvo já estão em dia deixa de ser aberto (nem os arquivos de layout nem a lista de membros são lidos). Antes, cada tarefa por tabela abria todos os ZIPs antes de verificar o Parquet, o que em disco lento levava minutos por tabela sem nada a converter. As contagens de `converted` e `skipped` não mudam; o ZIP em que a tabela falta, o ZIP novo, `force` e a conversão sem `datasets` seguem abrindo o ZIP como antes.
 
 ## [0.5.0] - 2026-11-16
 ### Alterado
